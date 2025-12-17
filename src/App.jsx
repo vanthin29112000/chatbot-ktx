@@ -3,8 +3,9 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import './App.css'
 
-const API_URL = '/api/chat'
-// Backend API URL - có thể override bằng environment variable
+// Chatbot API URL - có thể override bằng environment variable
+const API_URL = import.meta.env.VITE_CHATBOT_API_URL || 'https://trungtamquanlykytucxadhquocgiahcm.zapier.app/api/chat'
+// Backend API URL (cho payload capture) - có thể override bằng environment variable
 const BACKEND_API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000'
 
 // Payload mặc định - sẽ dùng nếu không capture được tự động
