@@ -331,6 +331,8 @@ function App() {
               setPayloadTemplate(status.payload)
               // Không lưu vào localStorage để mỗi lần vào trang đều mới
               setPayloadCaptureStatus('')
+              // Reset is_capturing flag trên backend
+              fetch(`${BACKEND_API_URL}/api/reset-capture`, { method: 'POST' }).catch(() => {})
 
               const notification = document.createElement('div')
               notification.style.cssText = `
@@ -356,6 +358,8 @@ function App() {
               captureCompleted = true
               console.log('❌ Backend trả về lỗi, sử dụng payload mặc định')
               useDefaultPayload()
+              // Reset is_capturing flag trên backend
+              fetch(`${BACKEND_API_URL}/api/reset-capture`, { method: 'POST' }).catch(() => {})
               return true // Đánh dấu đã hoàn thành để dừng polling
             } else if (status.status === 'capturing') {
               // Backend đang xử lý → tiếp tục loading và polling
@@ -419,6 +423,8 @@ function App() {
             // Backend trả về lỗi → dùng payload mặc định
             console.log('❌ Backend trả về lỗi, sử dụng payload mặc định')
             useDefaultPayload()
+            // Reset is_capturing flag trên backend
+            fetch(`${BACKEND_API_URL}/api/reset-capture`, { method: 'POST' }).catch(() => {})
             return
           }
         } catch (e) {
@@ -426,6 +432,8 @@ function App() {
           console.log('⚠️ Không thể kết nối backend:', e)
           console.log('📦 Sử dụng payload mặc định...')
           useDefaultPayload()
+          // Reset is_capturing flag trên backend
+          fetch(`${BACKEND_API_URL}/api/reset-capture`, { method: 'POST' }).catch(() => {})
         }
       }
     } catch (e) {
@@ -433,6 +441,8 @@ function App() {
       console.log('⚠️ Không thể kết nối backend:', e)
       console.log('📦 Sử dụng payload mặc định...')
       useDefaultPayload()
+      // Reset is_capturing flag trên backend
+      fetch(`${BACKEND_API_URL}/api/reset-capture`, { method: 'POST' }).catch(() => {})
     }
   }
 

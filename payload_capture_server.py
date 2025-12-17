@@ -634,6 +634,17 @@ def keep_alive():
     """Keep-alive endpoint để tránh spin down trên Render"""
     return jsonify({"status": "alive", "message": "Server is running"})
 
+@app.route('/api/reset-capture', methods=['POST'])
+def reset_capture():
+    """API endpoint để reset capture flag (cho phép capture mới)"""
+    global is_capturing
+    with capture_lock:
+        is_capturing = False
+    return jsonify({
+        "success": True,
+        "message": "Capture flag đã được reset"
+    })
+
 if __name__ == '__main__':
     import os
     port = int(os.environ.get('PORT', 5000))
