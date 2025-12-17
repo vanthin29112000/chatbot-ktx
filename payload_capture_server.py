@@ -37,7 +37,7 @@ capture_status = {
 
 def capture_payload_selenium(initial_message="hi"):
     """Sử dụng Selenium để tự động capture payload"""
-    global captured_payload, capture_status
+    global captured_payload, capture_status, is_capturing
     
     capture_status["status"] = "capturing"
     capture_status["error"] = None
@@ -466,7 +466,6 @@ def capture_payload_selenium(initial_message="hi"):
                                             capture_status["payload"] = payload
                                             capture_status["message"] = "Hoàn thành!"
                                             # Reset flag ngay khi capture thành công
-                                            global is_capturing
                                             with capture_lock:
                                                 is_capturing = False
                                             print(f"✅ Đã capture payload từ network request!")
@@ -537,7 +536,6 @@ def capture_payload_selenium(initial_message="hi"):
             capture_status["status"] = "error"
             capture_status["error"] = error_msg
             # Reset flag ngay khi có lỗi
-            global is_capturing
             with capture_lock:
                 is_capturing = False
             raise
@@ -550,7 +548,6 @@ def capture_payload_selenium(initial_message="hi"):
         return None
         
     finally:
-        global is_capturing
         if driver:
             print("🔒 Đang đóng browser...")
             try:
