@@ -9,4 +9,8 @@ services:
         value: 5000
       - key: FLASK_ENV
         value: production
+      - key: SHOW_BROWSER
+        value: false
+      - key: RECORD_VIDEO
+        value: false
 

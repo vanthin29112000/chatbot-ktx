@@ -34,22 +34,38 @@ def capture_payload_playwright(initial_message="hi"):
         capture_status["message"] = "Đang khởi tạo trình duyệt..."
         
         with sync_playwright() as p:
-            # Khởi tạo browser với headless mode
-            print("🌐 Đang khởi động browser...")
+            # Kiểm tra xem có muốn hiển thị browser không (qua environment variable)
+            # Mặc định là headless=True (ẩn browser)
+            # Set SHOW_BROWSER=true để hiển thị browser (chỉ hoạt động khi có display)
+            show_browser = os.environ.get('SHOW_BROWSER', 'false').lower() == 'true'
+            
+            # Khởi tạo browser
+            print(f"🌐 Đang khởi động browser... (headless={not show_browser})")
             browser = p.chromium.launch(
-                headless=True,
+                headless=not show_browser,  # False = hiển thị browser, True = ẩn browser
                 args=[
                     '--no-sandbox',
                     '--disable-dev-shm-usage',
                     '--disable-blink-features=AutomationControlled',
-                ]
+                ],
+                slow_mo=100 if show_browser else 0,  # Chậm lại 100ms mỗi action nếu hiển thị browser
             )
             
             # Tạo context với viewport size
-            context = browser.new_context(
-                viewport={'width': 1920, 'height': 1080},
-                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            )
+            # Có thể record video nếu muốn (để debug)
+            record_video = os.environ.get('RECORD_VIDEO', 'false').lower() == 'true'
+            context_options = {
+                'viewport': {'width': 1920, 'height': 1080},
+                'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+            
+            # Thêm video recording nếu được bật
+            if record_video:
+                context_options['record_video_dir'] = '/tmp/playwright_videos'
+                context_options['record_video_size'] = {'width': 1920, 'height': 1080}
+                print("📹 Video recording đã được bật")
+            
+            context = browser.new_context(**context_options)
             
             page = context.new_page()
             
@@ -59,9 +75,8 @@ def capture_payload_playwright(initial_message="hi"):
             # URL mục tiêu cần capture
             target_url = "https://trungtamquanlykytucxadhquocgiahcm.zapier.app/api/chat"
             
-            # Lắng nghe network requests - dùng route để intercept và lấy post data
-            def handle_route(route):
-                request = route.request
+            # Lắng nghe network requests - dùng event listener (đơn giản hơn route)
+            def handle_request(request):
                 if '/api/chat' in request.url and request.method == 'POST':
                     try:
                         # Lấy post_data từ request
@@ -88,18 +103,13 @@ def capture_payload_playwright(initial_message="hi"):
                             print(f"📦 Payload: {json.dumps(payload, indent=2, ensure_ascii=False)}")
                         else:
                             print(f"⚠️  POST request đến {request.url} nhưng không có post_data")
-                            print(f"⚠️  Request headers: {request.headers}")
                     except Exception as e:
                         print(f"⚠️  Lỗi khi parse payload: {e}")
-                        print(f"⚠️  Request details: URL={request.url}, Method={request.method}")
                         import traceback
                         traceback.print_exc()
-                
-                # Tiếp tục request bình thường
-                route.continue_()
             
-            # Intercept tất cả requests - chỉ intercept requests đến target URL
-            page.route("**/api/chat", handle_route)
+            # Lắng nghe tất cả requests
+            page.on("request", handle_request)
             
             url = "https://trungtamquanlykytucxadhquocgiahcm.zapier.app/"
             print(f"📡 Đang mở trang web: {url}")
