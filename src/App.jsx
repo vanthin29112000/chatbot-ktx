@@ -332,7 +332,7 @@ function App() {
               // Không lưu vào localStorage để mỗi lần vào trang đều mới
               setPayloadCaptureStatus('')
               // Reset is_capturing flag trên backend
-              fetch(`${BACKEND_API_URL}api/reset-capture`, { method: 'POST' }).catch(() => {})
+              fetch(`${BACKEND_API_URL}/api/reset-capture`, { method: 'POST' }).catch(() => {})
 
               const notification = document.createElement('div')
               notification.style.cssText = `
@@ -359,7 +359,7 @@ function App() {
               console.log('❌ Backend trả về lỗi, sử dụng payload mặc định')
               useDefaultPayload()
               // Reset is_capturing flag trên backend
-              fetch(`${BACKEND_API_URL}api/reset-capture`, { method: 'POST' }).catch(() => {})
+              fetch(`${BACKEND_API_URL}/api/reset-capture`, { method: 'POST' }).catch(() => {})
               return true // Đánh dấu đã hoàn thành để dừng polling
             } else if (status.status === 'capturing') {
               // Backend đang xử lý → tiếp tục loading và polling
