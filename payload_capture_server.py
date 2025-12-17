@@ -59,21 +59,47 @@ def capture_payload_playwright(initial_message="hi"):
             # URL mục tiêu cần capture
             target_url = "https://trungtamquanlykytucxadhquocgiahcm.zapier.app/api/chat"
             
-            # Lắng nghe network requests
-            def handle_request(request):
+            # Lắng nghe network requests - dùng route để intercept và lấy post data
+            def handle_route(route):
+                request = route.request
                 if '/api/chat' in request.url and request.method == 'POST':
                     try:
+                        # Lấy post_data từ request
                         post_data = request.post_data
+                        
                         if post_data:
-                            payload = json.loads(post_data)
+                            # Parse JSON payload
+                            if isinstance(post_data, str):
+                                payload = json.loads(post_data)
+                            elif isinstance(post_data, dict):
+                                payload = post_data
+                            else:
+                                # Thử decode nếu là bytes
+                                try:
+                                    post_data_str = post_data.decode('utf-8') if isinstance(post_data, bytes) else str(post_data)
+                                    payload = json.loads(post_data_str)
+                                except:
+                                    payload = post_data
+                            
                             captured_payload_from_network[0] = payload
                             print(f"✅ Đã capture payload từ network request!")
                             print(f"📋 Request URL: {request.url}")
+                            print(f"📋 Request Method: {request.method}")
                             print(f"📦 Payload: {json.dumps(payload, indent=2, ensure_ascii=False)}")
+                        else:
+                            print(f"⚠️  POST request đến {request.url} nhưng không có post_data")
+                            print(f"⚠️  Request headers: {request.headers}")
                     except Exception as e:
                         print(f"⚠️  Lỗi khi parse payload: {e}")
+                        print(f"⚠️  Request details: URL={request.url}, Method={request.method}")
+                        import traceback
+                        traceback.print_exc()
+                
+                # Tiếp tục request bình thường
+                route.continue_()
             
-            page.on("request", handle_request)
+            # Intercept tất cả requests - chỉ intercept requests đến target URL
+            page.route("**/api/chat", handle_route)
             
             url = "https://trungtamquanlykytucxadhquocgiahcm.zapier.app/"
             print(f"📡 Đang mở trang web: {url}")
