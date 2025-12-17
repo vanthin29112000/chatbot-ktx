@@ -74,12 +74,46 @@ def capture_payload_selenium(initial_message="hi"):
                     except Exception as cache_error:
                         print(f"⚠️  Không thể xóa cache: {cache_error}")
                 
-                # Sử dụng ChromeService với ChromeDriverManager (giống như code automation của bạn)
-                # driver_version="LATEST" để đảm bảo tải version mới nhất
+                # Sử dụng ChromeService với ChromeDriverManager
                 print("📥 Đang tải ChromeDriver mới nhất...")
-                service = ChromeService(ChromeDriverManager().install())
-                driver = webdriver.Chrome(service=service, options=chrome_options)
-                print("✅ ChromeDriver đã được khởi tạo thành công")
+                try:
+                    import os
+                    # Lấy path đến chromedriver directory
+                    driver_path = ChromeDriverManager().install()
+                    
+                    # Nếu path trỏ đến file không phải executable, tìm file chromedriver thực sự
+                    if 'THIRD_PARTY_NOTICES' in driver_path or not os.path.isfile(driver_path) or not os.access(driver_path, os.X_OK):
+                        # Tìm chromedriver trong thư mục chứa file này
+                        driver_dir = os.path.dirname(driver_path) if os.path.isfile(driver_path) else driver_path
+                        
+                        # Tìm file chromedriver executable
+                        chromedriver_found = False
+                        for root, dirs, files in os.walk(driver_dir):
+                            for file in files:
+                                file_path = os.path.join(root, file)
+                                # Kiểm tra nếu là chromedriver và có quyền execute
+                                if file == 'chromedriver' or (file.startswith('chromedriver') and not file.endswith('.txt') and 'NOTICES' not in file):
+                                    try:
+                                        if os.access(file_path, os.X_OK):
+                                            driver_path = file_path
+                                            chromedriver_found = True
+                                            break
+                                    except:
+                                        continue
+                            if chromedriver_found:
+                                break
+                        
+                        if not chromedriver_found:
+                            raise Exception(f"Không tìm thấy chromedriver executable trong {driver_dir}")
+                    
+                    print(f"📋 Sử dụng ChromeDriver tại: {driver_path}")
+                    service = ChromeService(driver_path)
+                    driver = webdriver.Chrome(service=service, options=chrome_options)
+                    print("✅ ChromeDriver đã được khởi tạo thành công")
+                except Exception as wdm_error:
+                    print(f"⚠️  Lỗi khi dùng webdriver-manager: {wdm_error}")
+                    # Fallback: thử dùng chromedriver từ PATH
+                    raise
             except Exception as e:
                 error_str = str(e)
                 print(f"⚠️  Lỗi khi dùng webdriver-manager: {e}")
@@ -95,7 +129,19 @@ def capture_payload_selenium(initial_message="hi"):
                         try:
                             shutil.rmtree(cache_dir)
                             print("✅ Đã xóa cache, thử tải lại ChromeDriver...")
-                            service = ChromeService(ChromeDriverManager().install())
+                            # Tìm lại chromedriver sau khi xóa cache
+                            driver_path = ChromeDriverManager().install()
+                            import os
+                            if 'THIRD_PARTY_NOTICES' in driver_path or not os.path.isfile(driver_path) or not os.access(driver_path, os.X_OK):
+                                driver_dir = os.path.dirname(driver_path) if os.path.isfile(driver_path) else driver_path
+                                for root, dirs, files in os.walk(driver_dir):
+                                    for file in files:
+                                        file_path = os.path.join(root, file)
+                                        if file == 'chromedriver' or (file.startswith('chromedriver') and not file.endswith('.txt') and 'NOTICES' not in file):
+                                            if os.access(file_path, os.X_OK):
+                                                driver_path = file_path
+                                                break
+                            service = ChromeService(driver_path)
                             driver = webdriver.Chrome(service=service, options=chrome_options)
                             print("✅ ChromeDriver đã được khởi tạo thành công sau khi xóa cache")
                         except Exception as retry_error:
