@@ -465,6 +465,10 @@ def capture_payload_selenium(initial_message="hi"):
                                             capture_status["status"] = "captured"
                                             capture_status["payload"] = payload
                                             capture_status["message"] = "Hoàn thành!"
+                                            # Reset flag ngay khi capture thành công
+                                            global is_capturing
+                                            with capture_lock:
+                                                is_capturing = False
                                             print(f"✅ Đã capture payload từ network request!")
                                             print(f"📋 Request URL: {request_url}")
                                             print(f"📋 Request Method: {request_method}")
@@ -532,6 +536,10 @@ def capture_payload_selenium(initial_message="hi"):
             print(f"❌ {error_msg}")
             capture_status["status"] = "error"
             capture_status["error"] = error_msg
+            # Reset flag ngay khi có lỗi
+            global is_capturing
+            with capture_lock:
+                is_capturing = False
             raise
             
     except Exception as e:
@@ -597,7 +605,14 @@ def capture_payload():
 @app.route('/api/capture-status', methods=['GET'])
 def get_capture_status():
     """API endpoint để kiểm tra trạng thái capture"""
-    global capture_status
+    global capture_status, is_capturing
+    
+    # Auto-reset flag nếu status đã hoàn thành (captured hoặc error) nhưng flag vẫn True
+    if capture_status.get("status") in ["captured", "error"] and is_capturing:
+        with capture_lock:
+            is_capturing = False
+            print("🔄 Auto-reset is_capturing flag vì status đã hoàn thành")
+    
     return jsonify(capture_status)
 
 @app.route('/api/get-payload', methods=['GET'])
@@ -637,9 +652,16 @@ def keep_alive():
 @app.route('/api/reset-capture', methods=['POST'])
 def reset_capture():
     """API endpoint để reset capture flag (cho phép capture mới)"""
-    global is_capturing
+    global is_capturing, capture_status
     with capture_lock:
         is_capturing = False
+        # Reset capture status về idle
+        capture_status = {
+            "status": "idle",
+            "payload": None,
+            "error": None
+        }
+        print("🔄 Capture flag đã được reset thủ công")
     return jsonify({
         "success": True,
         "message": "Capture flag đã được reset"
