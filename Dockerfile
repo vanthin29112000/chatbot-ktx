@@ -11,7 +11,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Copy và cài Python dependencies
-COPY requirements.txt .
+# Dùng requirements.backend.txt để Netlify không detect Python
+COPY requirements.backend.txt requirements.txt
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 

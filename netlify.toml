@@ -13,9 +13,11 @@
 
 [build.environment]
   NODE_VERSION = "18"
-  # Tắt Python build (frontend không cần Python)
+  # Tắt Python build hoàn toàn (frontend không cần Python)
   PIPENV_DEFAULT_PYTHON_VERSION = ""
   PYTHON_VERSION = ""
+  # Force chỉ dùng Node.js, không detect Python
+  NPM_FLAGS = "--production=false"
   
 # Headers for security
 [[headers]]

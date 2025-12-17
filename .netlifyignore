@@ -1,5 +1,6 @@
 # Backend files - không cần cho frontend build
 requirements.txt
+requirements.backend.txt
 requirements_*.txt
 payload_capture_server*.py
 Dockerfile
