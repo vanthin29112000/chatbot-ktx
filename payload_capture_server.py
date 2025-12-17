@@ -34,6 +34,7 @@ def capture_payload_playwright(initial_message="hi"):
         capture_status["message"] = "Đang khởi tạo trình duyệt..."
         
         # Đảm bảo Playwright browser đã được cài đặt (tự động download nếu chưa có)
+        # Lưu ý: Browser nên được cài trong Dockerfile để tránh phải tải lại mỗi lần
         try:
             from playwright.sync_api import sync_playwright
             # Thử launch browser để kiểm tra xem đã cài chưa
@@ -41,13 +42,29 @@ def capture_payload_playwright(initial_message="hi"):
                 try:
                     browser = p.chromium.launch(headless=True)
                     browser.close()
-                    print("✅ Browser đã sẵn sàng", flush=True)
+                    print("✅ Browser đã sẵn sàng (đã được cài trong Docker image)", flush=True)
                 except Exception as e:
-                    if "Executable doesn't exist" in str(e) or "browser has not been installed" in str(e).lower():
-                        print("📥 Browser chưa được cài đặt, đang cài đặt...", flush=True)
+                    error_str = str(e).lower()
+                    if "executable doesn't exist" in error_str or "browser has not been installed" in error_str or "missing dependencies" in error_str:
+                        print("📥 Browser chưa được cài đặt hoặc thiếu dependencies, đang cài đặt...", flush=True)
                         import subprocess
-                        subprocess.run(["playwright", "install", "chromium"], check=True, timeout=300)
-                        print("✅ Đã cài đặt browser thành công", flush=True)
+                        try:
+                            # Cài browser
+                            subprocess.run(["playwright", "install", "chromium"], check=True, timeout=300)
+                            print("✅ Đã cài đặt browser thành công", flush=True)
+                            # Thử cài system deps (có thể fail nếu đã cài trong Dockerfile)
+                            try:
+                                subprocess.run(["playwright", "install-deps", "chromium"], check=True, timeout=60)
+                                print("✅ Đã cài đặt system dependencies", flush=True)
+                            except:
+                                print("⚠️  System dependencies có thể đã được cài trong Dockerfile", flush=True)
+                        except subprocess.TimeoutExpired:
+                            raise Exception("Timeout khi cài đặt browser. Vui lòng kiểm tra kết nối mạng.")
+                        except Exception as install_err:
+                            raise Exception(f"Lỗi khi cài đặt browser: {install_err}")
+                    else:
+                        # Lỗi khác, re-raise
+                        raise
         except Exception as install_error:
             print(f"⚠️  Lỗi khi kiểm tra/cài đặt browser: {install_error}", flush=True)
             # Tiếp tục thử launch, có thể browser đã có sẵn
