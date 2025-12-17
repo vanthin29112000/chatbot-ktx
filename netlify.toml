@@ -3,10 +3,12 @@
   publish = "dist"
 
 # SPA redirect - redirect all routes to index.html
+# This ensures all routes work for React Router
 [[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
+  force = true
 
 [build.environment]
   NODE_VERSION = "18"
