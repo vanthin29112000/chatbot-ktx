@@ -2,13 +2,14 @@
 Payload Capture Server - Tự động capture payload từ Zapier chatbot
 Sử dụng Selenium để tự động hóa quy trình
 """
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, Response, stream_with_context
 from flask_cors import CORS
 import json
 import time
 import threading
 import os
 import shutil
+import requests
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -730,6 +731,106 @@ def get_payload():
             "success": False,
             "message": "Chưa có payload được capture"
         }), 404
+
+@app.route('/api/chat', methods=['POST', 'OPTIONS'])
+def proxy_chat():
+    """Proxy endpoint để forward requests đến Zapier chatbot (tránh CORS)"""
+    # Handle preflight CORS request
+    if request.method == 'OPTIONS':
+        response = jsonify({})
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        response.headers.add('Access-Control-Allow-Methods', 'POST, OPTIONS')
+        return response
+    
+    try:
+        # Lấy payload từ request
+        payload = request.get_json()
+        if not payload:
+            return jsonify({"error": "No payload provided"}), 400
+        
+        # URL của Zapier chatbot
+        chatbot_url = "https://trungtamquanlykytucxadhquocgiahcm.zapier.app/api/chat"
+        
+        print(f"📤 Forwarding request to Zapier chatbot: {chatbot_url}")
+        print(f"📦 Payload: {json.dumps(payload, indent=2, ensure_ascii=False)}")
+        
+        # Forward request đến Zapier với streaming
+        headers = {
+            'Content-Type': 'application/json',
+            'Accept': 'text/event-stream',
+        }
+        
+        # Gửi request với stream=True để nhận streaming response
+        response = requests.post(
+            chatbot_url,
+            json=payload,
+            headers=headers,
+            stream=True,
+            timeout=60
+        )
+        
+        # Kiểm tra status code
+        if response.status_code != 200:
+            error_text = response.text
+            print(f"❌ Error from Zapier: {response.status_code} - {error_text}")
+            return jsonify({
+                "error": f"Chatbot API error: {response.status_code}",
+                "message": error_text
+            }), response.status_code
+        
+        # Stream response về client
+        def generate():
+            try:
+                # Stream từng chunk từ Zapier response
+                for chunk in response.iter_content(chunk_size=8192, decode_unicode=False):
+                    if chunk:
+                        # Decode bytes to string nếu cần
+                        try:
+                            if isinstance(chunk, bytes):
+                                chunk = chunk.decode('utf-8', errors='replace')
+                            yield chunk
+                        except Exception as decode_error:
+                            print(f"⚠️  Error decoding chunk: {decode_error}")
+                            # Vẫn yield chunk gốc nếu decode fail
+                            if isinstance(chunk, bytes):
+                                yield chunk.decode('utf-8', errors='ignore')
+                            else:
+                                yield str(chunk)
+            except Exception as e:
+                print(f"❌ Error streaming response: {e}")
+                error_data = json.dumps({'error': str(e)}, ensure_ascii=False)
+                yield f"data: {error_data}\n\n"
+        
+        # Trả về streaming response với CORS headers
+        flask_response = Response(
+            stream_with_context(generate()),
+            mimetype='text/event-stream',
+            headers={
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Headers': 'Content-Type',
+                'Access-Control-Allow-Methods': 'POST, OPTIONS',
+                'Cache-Control': 'no-cache',
+                'Connection': 'keep-alive',
+            }
+        )
+        
+        return flask_response
+        
+    except requests.exceptions.RequestException as e:
+        error_msg = f"Lỗi kết nối đến chatbot: {str(e)}"
+        print(f"❌ {error_msg}")
+        return jsonify({
+            "error": "Network error",
+            "message": error_msg
+        }), 500
+    except Exception as e:
+        error_msg = f"Lỗi không xác định: {str(e)}"
+        print(f"❌ {error_msg}")
+        return jsonify({
+            "error": "Internal error",
+            "message": error_msg
+        }), 500
 
 @app.route('/health', methods=['GET'])
 def health():
