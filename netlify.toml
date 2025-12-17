@@ -1,6 +1,7 @@
 [build]
   command = "npm run build"
   publish = "dist"
+  ignore = ".netlifyignore"
 
 # SPA redirect - redirect all routes to index.html
 # This ensures all routes work for React Router
@@ -12,6 +13,9 @@
 
 [build.environment]
   NODE_VERSION = "18"
+  # Tắt Python build (frontend không cần Python)
+  PIPENV_DEFAULT_PYTHON_VERSION = ""
+  PYTHON_VERSION = ""
   
 # Headers for security
 [[headers]]

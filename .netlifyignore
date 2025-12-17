@@ -1,0 +1,36 @@
+# Backend files - không cần cho frontend build
+requirements.txt
+requirements_*.txt
+payload_capture_server*.py
+Dockerfile
+Dockerfile.*
+render.yaml
+*.py
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+venv/
+env/
+ENV/
+
+# Backend documentation
+BACKEND_DEPLOY_COMPARISON.md
+DOCKER_TROUBLESHOOTING.md
+DEPLOY.md
+DEPLOY_GUIDE.md
+DEPLOY_CHECKLIST.md
+HOW_FRONTEND_GETS_PAYLOAD.md
+PLAYWRIGHT_MIGRATION.md
+README_PAYLOAD_CAPTURE.md
+simple_capture.py
+capture_payload_simple.py
+fix_chromedriver.py
+update_chromedriver.py
+
+# Other
+.env
+.env.local
+*.log
