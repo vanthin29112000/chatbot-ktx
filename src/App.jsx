@@ -424,7 +424,7 @@ function App() {
             console.log('❌ Backend trả về lỗi, sử dụng payload mặc định')
             useDefaultPayload()
             // Reset is_capturing flag trên backend
-            fetch(`${BACKEND_API_URL}api/reset-capture`, { method: 'POST' }).catch(() => {})
+            fetch(`${BACKEND_API_URL}/api/reset-capture`, { method: 'POST' }).catch(() => {})
             return
           }
         } catch (e) {
@@ -433,7 +433,7 @@ function App() {
           console.log('📦 Sử dụng payload mặc định...')
           useDefaultPayload()
           // Reset is_capturing flag trên backend
-          fetch(`${BACKEND_API_URL}api/reset-capture`, { method: 'POST' }).catch(() => {})
+          fetch(`${BACKEND_API_URL}/api/reset-capture`, { method: 'POST' }).catch(() => {})
         }
       }
     } catch (e) {
@@ -442,7 +442,7 @@ function App() {
       console.log('📦 Sử dụng payload mặc định...')
       useDefaultPayload()
       // Reset is_capturing flag trên backend
-      fetch(`${BACKEND_API_URL}api/reset-capture`, { method: 'POST' }).catch(() => {})
+      fetch(`${BACKEND_API_URL}/api/reset-capture`, { method: 'POST' }).catch(() => {})
     }
   }
 
