@@ -2,6 +2,7 @@
   command = "npm run build"
   publish = "dist"
 
+# SPA redirect - redirect all routes to index.html
 [[redirects]]
   from = "/*"
   to = "/index.html"
@@ -9,4 +10,13 @@
 
 [build.environment]
   NODE_VERSION = "18"
+  
+# Headers for security
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-XSS-Protection = "1; mode=block"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
 
