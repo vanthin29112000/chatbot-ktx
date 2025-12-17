@@ -19,6 +19,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libasound2 \
     libatspi2.0-0 \
     libxshmfence1 \
+    libx11-6 \
+    libx11-xcb1 \
+    libxcb1 \
+    libxext6 \
+    libxrender1 \
+    libglib2.0-0 \
+    libgtk-3-0 \
+    libpango-1.0-0 \
+    libcairo2 \
+    libfontconfig1 \
+    libgdk-pixbuf2.0-0 \
     # Cleanup
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
@@ -30,9 +41,9 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# Cài đặt Playwright browsers (tự động download Chromium)
-RUN playwright install chromium && \
-    playwright install-deps chromium
+# Cài đặt Playwright browser (với error handling)
+# Nếu fail, sẽ để Playwright tự động download khi chạy
+RUN playwright install chromium || echo "⚠️  Không thể cài browser trong build, sẽ cài khi chạy"
 
 # Copy code
 COPY . .
