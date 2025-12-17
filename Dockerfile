@@ -43,6 +43,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
+# Tạo symlink để webdriver-manager có thể tìm thấy "chrome" (thực chất là chromium)
+# Điều này giúp tránh lỗi "google-chrome not found" khi webdriver-manager cố detect version
+RUN if [ -f /usr/bin/chromium ] && [ ! -f /usr/bin/google-chrome ]; then \
+        ln -s /usr/bin/chromium /usr/bin/google-chrome || true; \
+    fi
+
 WORKDIR /app
 
 # Tối ưu: Copy requirements.txt trước để tận dụng Docker layer caching

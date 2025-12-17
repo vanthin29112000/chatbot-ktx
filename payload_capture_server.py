@@ -83,61 +83,112 @@ def capture_payload_selenium(initial_message="hi"):
         
         print("🚀 Khởi tạo Chrome/Chromium driver...")
         capture_status["message"] = "Đang khởi tạo trình duyệt..."
-        if USE_WEBDRIVER_MANAGER:
+        
+        # Ưu tiên: Thử dùng chromedriver từ hệ thống trước (từ chromium-driver package)
+        system_chromedriver_paths = [
+            '/usr/bin/chromedriver',
+            '/usr/lib/chromium-browser/chromedriver',
+        ]
+        
+        # Thử tìm trong PATH
+        try:
+            chromedriver_in_path = shutil.which('chromedriver')
+            if chromedriver_in_path:
+                system_chromedriver_paths.append(chromedriver_in_path)
+        except:
+            pass
+        
+        chromedriver_found = None
+        for path in system_chromedriver_paths:
+            if path and os.path.exists(path) and os.access(path, os.X_OK):
+                chromedriver_found = path
+                print(f"✅ Tìm thấy chromedriver hệ thống tại: {path}")
+                break
+        
+        # Nếu tìm thấy chromedriver hệ thống, dùng nó
+        if chromedriver_found:
             try:
-                # Xóa cache để đảm bảo tải ChromeDriver mới nhất (tương thích với Chrome hiện tại)
-                import os
-                cache_dir = os.path.join(os.path.expanduser("~"), ".wdm")
-                if os.path.exists(cache_dir):
-                    print("🧹 Đang xóa cache webdriver-manager để tải ChromeDriver mới...")
-                    import shutil
-                    try:
-                        shutil.rmtree(cache_dir)
-                        print("✅ Đã xóa cache thành công")
-                    except Exception as cache_error:
-                        print(f"⚠️  Không thể xóa cache: {cache_error}")
-                
-                # Sử dụng ChromeService với ChromeDriverManager
-                print("📥 Đang tải ChromeDriver mới nhất...")
-                try:
-                    import os
-                    # Lấy path đến chromedriver directory
-                    driver_path = ChromeDriverManager().install()
-                    
-                    # Nếu path trỏ đến file không phải executable, tìm file chromedriver thực sự
-                    if 'THIRD_PARTY_NOTICES' in driver_path or not os.path.isfile(driver_path) or not os.access(driver_path, os.X_OK):
-                        # Tìm chromedriver trong thư mục chứa file này
-                        driver_dir = os.path.dirname(driver_path) if os.path.isfile(driver_path) else driver_path
-                        
-                        # Tìm file chromedriver executable
-                        chromedriver_found = False
-                        for root, dirs, files in os.walk(driver_dir):
-                            for file in files:
-                                file_path = os.path.join(root, file)
-                                # Kiểm tra nếu là chromedriver và có quyền execute
-                                if file == 'chromedriver' or (file.startswith('chromedriver') and not file.endswith('.txt') and 'NOTICES' not in file):
-                                    try:
-                                        if os.access(file_path, os.X_OK):
-                                            driver_path = file_path
-                                            chromedriver_found = True
-                                            break
-                                    except:
-                                        continue
-                            if chromedriver_found:
-                                break
-                        
-                        if not chromedriver_found:
-                            raise Exception(f"Không tìm thấy chromedriver executable trong {driver_dir}")
-                    
-                    print(f"📋 Sử dụng ChromeDriver tại: {driver_path}")
-                    service = ChromeService(driver_path)
-                    driver = webdriver.Chrome(service=service, options=chrome_options)
-                    print("✅ ChromeDriver đã được khởi tạo thành công")
-                except Exception as wdm_error:
-                    print(f"⚠️  Lỗi khi dùng webdriver-manager: {wdm_error}")
-                    # Fallback: thử dùng chromedriver từ PATH
-                    raise
+                from selenium.webdriver.chrome.service import Service as ChromeService
+                service = ChromeService(chromedriver_found)
+                driver = webdriver.Chrome(service=service, options=chrome_options)
+                print("✅ ChromeDriver hệ thống đã được khởi tạo thành công")
             except Exception as e:
+                print(f"⚠️  Lỗi khi dùng chromedriver hệ thống: {e}")
+                chromedriver_found = None  # Reset để thử cách khác
+        
+        # Nếu đã tìm thấy chromedriver hệ thống, không cần dùng webdriver-manager
+        # (tránh các warning "google-chrome not found" từ webdriver-manager)
+        if not chromedriver_found and USE_WEBDRIVER_MANAGER:
+            # Kiểm tra xem có Chromium không (có thể có symlink từ Dockerfile)
+            has_chromium = (
+                (browser_binary and 'chromium' in browser_binary.lower()) or
+                os.path.exists('/usr/bin/chromium') or
+                os.path.exists('/usr/bin/chromium-browser') or
+                os.path.exists('/usr/bin/google-chrome')  # Có thể là symlink đến chromium
+            )
+            
+            # Nếu có Chromium (hoặc symlink), vẫn có thể thử webdriver-manager
+            # vì symlink sẽ giúp webdriver-manager detect được
+            # Nhưng nếu không có, skip để tránh warning
+            if not has_chromium:
+                print("⚠️  Không tìm thấy Chrome/Chromium, bỏ qua webdriver-manager để tránh lỗi")
+                chromedriver_found = None  # Để fallback xuống ChromeDriver mặc định
+            else:
+                # Có Chromium hoặc symlink, có thể thử webdriver-manager
+                try:
+                    # Xóa cache để đảm bảo tải ChromeDriver mới nhất (tương thích với Chrome hiện tại)
+                    import os
+                    cache_dir = os.path.join(os.path.expanduser("~"), ".wdm")
+                    if os.path.exists(cache_dir):
+                        print("🧹 Đang xóa cache webdriver-manager để tải ChromeDriver mới...")
+                        import shutil
+                        try:
+                            shutil.rmtree(cache_dir)
+                            print("✅ Đã xóa cache thành công")
+                        except Exception as cache_error:
+                            print(f"⚠️  Không thể xóa cache: {cache_error}")
+                    
+                    # Sử dụng ChromeService với ChromeDriverManager
+                    print("📥 Đang tải ChromeDriver mới nhất...")
+                    try:
+                        import os
+                        # Lấy path đến chromedriver directory
+                        driver_path = ChromeDriverManager().install()
+                        
+                        # Nếu path trỏ đến file không phải executable, tìm file chromedriver thực sự
+                        if 'THIRD_PARTY_NOTICES' in driver_path or not os.path.isfile(driver_path) or not os.access(driver_path, os.X_OK):
+                            # Tìm chromedriver trong thư mục chứa file này
+                            driver_dir = os.path.dirname(driver_path) if os.path.isfile(driver_path) else driver_path
+                            
+                            # Tìm file chromedriver executable
+                            chromedriver_found = False
+                            for root, dirs, files in os.walk(driver_dir):
+                                for file in files:
+                                    file_path = os.path.join(root, file)
+                                    # Kiểm tra nếu là chromedriver và có quyền execute
+                                    if file == 'chromedriver' or (file.startswith('chromedriver') and not file.endswith('.txt') and 'NOTICES' not in file):
+                                        try:
+                                            if os.access(file_path, os.X_OK):
+                                                driver_path = file_path
+                                                chromedriver_found = True
+                                                break
+                                        except:
+                                            continue
+                                if chromedriver_found:
+                                    break
+                            
+                            if not chromedriver_found:
+                                raise Exception(f"Không tìm thấy chromedriver executable trong {driver_dir}")
+                        
+                        print(f"📋 Sử dụng ChromeDriver tại: {driver_path}")
+                        service = ChromeService(driver_path)
+                        driver = webdriver.Chrome(service=service, options=chrome_options)
+                        print("✅ ChromeDriver đã được khởi tạo thành công")
+                    except Exception as wdm_error:
+                        print(f"⚠️  Lỗi khi dùng webdriver-manager: {wdm_error}")
+                        # Fallback: thử dùng chromedriver từ PATH
+                        raise
+                except Exception as e:
                 error_str = str(e)
                 print(f"⚠️  Lỗi khi dùng webdriver-manager: {e}")
                 
@@ -191,42 +242,19 @@ def capture_payload_selenium(initial_message="hi"):
                         error_msg += "4. Hoặc tải ChromeDriver thủ công từ: https://chromedriver.chromium.org/\n"
                         error_msg += "5. Đặt ChromeDriver vào PATH hoặc cùng thư mục với script"
                         raise Exception(error_msg)
-        else:
-            # Thử dùng chromedriver từ hệ thống (thường có trong Docker với chromium-driver)
-            system_chromedriver_paths = [
-                '/usr/bin/chromedriver',
-                '/usr/lib/chromium-browser/chromedriver',
-            ]
-            
-            # Thử tìm trong PATH
+        
+        # Fallback cuối cùng: Thử dùng ChromeDriver mặc định (nếu chưa khởi tạo driver)
+        if 'driver' not in locals() or driver is None:
+            print("🔄 Thử dùng ChromeDriver mặc định...")
             try:
-                chromedriver_in_path = shutil.which('chromedriver')
-                if chromedriver_in_path:
-                    system_chromedriver_paths.append(chromedriver_in_path)
-            except:
-                pass
-            
-            chromedriver_found = None
-            for path in system_chromedriver_paths:
-                if path and os.path.exists(path) and os.access(path, os.X_OK):
-                    chromedriver_found = path
-                    print(f"✅ Tìm thấy chromedriver hệ thống tại: {path}")
-                    break
-            
-            try:
-                if chromedriver_found:
-                    from selenium.webdriver.chrome.service import Service as ChromeService
-                    service = ChromeService(chromedriver_found)
-                    driver = webdriver.Chrome(service=service, options=chrome_options)
-                    print("✅ ChromeDriver hệ thống đã được khởi tạo thành công")
-                else:
-                    driver = webdriver.Chrome(options=chrome_options)
-                    print("✅ ChromeDriver đã được khởi tạo thành công")
+                driver = webdriver.Chrome(options=chrome_options)
+                print("✅ ChromeDriver mặc định đã được khởi tạo thành công")
             except Exception as e:
                 error_msg = f"Lỗi khởi tạo ChromeDriver: {str(e)}\n"
                 error_msg += "💡 Giải pháp:\n"
-                error_msg += "1. Cài đặt: pip install webdriver-manager\n"
-                error_msg += "2. Hoặc tải ChromeDriver thủ công và đặt vào PATH"
+                error_msg += "1. Đảm bảo Chromium và chromium-driver đã được cài đặt\n"
+                error_msg += "2. Hoặc cài đặt: pip install webdriver-manager\n"
+                error_msg += "3. Hoặc tải ChromeDriver thủ công và đặt vào PATH"
                 raise Exception(error_msg)
         
         # Enable Network domain để lắng nghe network requests
