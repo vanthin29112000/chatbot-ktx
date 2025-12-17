@@ -33,6 +33,25 @@ def capture_payload_playwright(initial_message="hi"):
         print("🚀 Khởi tạo Playwright browser...")
         capture_status["message"] = "Đang khởi tạo trình duyệt..."
         
+        # Đảm bảo Playwright browser đã được cài đặt (tự động download nếu chưa có)
+        try:
+            from playwright.sync_api import sync_playwright
+            # Thử launch browser để kiểm tra xem đã cài chưa
+            with sync_playwright() as p:
+                try:
+                    browser = p.chromium.launch(headless=True)
+                    browser.close()
+                    print("✅ Browser đã sẵn sàng")
+                except Exception as e:
+                    if "Executable doesn't exist" in str(e) or "browser has not been installed" in str(e).lower():
+                        print("📥 Browser chưa được cài đặt, đang cài đặt...")
+                        import subprocess
+                        subprocess.run(["playwright", "install", "chromium"], check=True, timeout=300)
+                        print("✅ Đã cài đặt browser thành công")
+        except Exception as install_error:
+            print(f"⚠️  Lỗi khi kiểm tra/cài đặt browser: {install_error}")
+            # Tiếp tục thử launch, có thể browser đã có sẵn
+        
         with sync_playwright() as p:
             # Kiểm tra xem có muốn hiển thị browser không (qua environment variable)
             # Mặc định là headless=True (ẩn browser)
