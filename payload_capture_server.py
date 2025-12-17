@@ -189,59 +189,59 @@ def capture_payload_selenium(initial_message="hi"):
                         # Fallback: thử dùng chromedriver từ PATH
                         raise
                 except Exception as e:
-                error_str = str(e)
-                print(f"⚠️  Lỗi khi dùng webdriver-manager: {e}")
-                
-                # Kiểm tra nếu là lỗi version mismatch
-                if "only supports Chrome version" in error_str or "This version of ChromeDriver" in error_str:
-                    print("🔧 Phát hiện lỗi version mismatch, đang cố gắng fix...")
-                    # Thử xóa cache và tải lại
-                    import os
-                    import shutil
-                    cache_dir = os.path.join(os.path.expanduser("~"), ".wdm")
-                    if os.path.exists(cache_dir):
-                        try:
-                            shutil.rmtree(cache_dir)
-                            print("✅ Đã xóa cache, thử tải lại ChromeDriver...")
-                            # Tìm lại chromedriver sau khi xóa cache
-                            driver_path = ChromeDriverManager().install()
-                            import os
-                            if 'THIRD_PARTY_NOTICES' in driver_path or not os.path.isfile(driver_path) or not os.access(driver_path, os.X_OK):
-                                driver_dir = os.path.dirname(driver_path) if os.path.isfile(driver_path) else driver_path
-                                for root, dirs, files in os.walk(driver_dir):
-                                    for file in files:
-                                        file_path = os.path.join(root, file)
-                                        if file == 'chromedriver' or (file.startswith('chromedriver') and not file.endswith('.txt') and 'NOTICES' not in file):
-                                            if os.access(file_path, os.X_OK):
-                                                driver_path = file_path
-                                                break
-                            service = ChromeService(driver_path)
-                            driver = webdriver.Chrome(service=service, options=chrome_options)
-                            print("✅ ChromeDriver đã được khởi tạo thành công sau khi xóa cache")
-                        except Exception as retry_error:
-                            error_msg = f"Lỗi version mismatch ChromeDriver:\n{error_str}\n\n"
-                            error_msg += "💡 Giải pháp:\n"
-                            error_msg += "1. Cập nhật webdriver-manager: pip install --upgrade webdriver-manager\n"
-                            error_msg += "2. Xóa cache thủ công: xóa thư mục %USERPROFILE%\\.wdm\n"
-                            error_msg += "3. Hoặc tải ChromeDriver thủ công cho Chrome 143 từ:\n"
-                            error_msg += "   https://googlechromelabs.github.io/chrome-for-testing/\n"
-                            raise Exception(error_msg)
+                    error_str = str(e)
+                    print(f"⚠️  Lỗi khi dùng webdriver-manager: {e}")
+                    
+                    # Kiểm tra nếu là lỗi version mismatch
+                    if "only supports Chrome version" in error_str or "This version of ChromeDriver" in error_str:
+                        print("🔧 Phát hiện lỗi version mismatch, đang cố gắng fix...")
+                        # Thử xóa cache và tải lại
+                        import os
+                        import shutil
+                        cache_dir = os.path.join(os.path.expanduser("~"), ".wdm")
+                        if os.path.exists(cache_dir):
+                            try:
+                                shutil.rmtree(cache_dir)
+                                print("✅ Đã xóa cache, thử tải lại ChromeDriver...")
+                                # Tìm lại chromedriver sau khi xóa cache
+                                driver_path = ChromeDriverManager().install()
+                                import os
+                                if 'THIRD_PARTY_NOTICES' in driver_path or not os.path.isfile(driver_path) or not os.access(driver_path, os.X_OK):
+                                    driver_dir = os.path.dirname(driver_path) if os.path.isfile(driver_path) else driver_path
+                                    for root, dirs, files in os.walk(driver_dir):
+                                        for file in files:
+                                            file_path = os.path.join(root, file)
+                                            if file == 'chromedriver' or (file.startswith('chromedriver') and not file.endswith('.txt') and 'NOTICES' not in file):
+                                                if os.access(file_path, os.X_OK):
+                                                    driver_path = file_path
+                                                    break
+                                service = ChromeService(driver_path)
+                                driver = webdriver.Chrome(service=service, options=chrome_options)
+                                print("✅ ChromeDriver đã được khởi tạo thành công sau khi xóa cache")
+                            except Exception as retry_error:
+                                error_msg = f"Lỗi version mismatch ChromeDriver:\n{error_str}\n\n"
+                                error_msg += "💡 Giải pháp:\n"
+                                error_msg += "1. Cập nhật webdriver-manager: pip install --upgrade webdriver-manager\n"
+                                error_msg += "2. Xóa cache thủ công: xóa thư mục %USERPROFILE%\\.wdm\n"
+                                error_msg += "3. Hoặc tải ChromeDriver thủ công cho Chrome 143 từ:\n"
+                                error_msg += "   https://googlechromelabs.github.io/chrome-for-testing/\n"
+                                raise Exception(error_msg)
+                        else:
+                            raise
                     else:
-                        raise
-                else:
-                    print("🔄 Thử dùng ChromeDriver mặc định...")
-                    try:
-                        driver = webdriver.Chrome(options=chrome_options)
-                        print("✅ ChromeDriver mặc định đã được khởi tạo thành công")
-                    except Exception as e2:
-                        error_msg = f"Lỗi khởi tạo ChromeDriver: {str(e2)}\n"
-                        error_msg += "💡 Giải pháp:\n"
-                        error_msg += "1. Đảm bảo Chrome đã được cài đặt\n"
-                        error_msg += "2. Chạy: pip install --upgrade webdriver-manager selenium\n"
-                        error_msg += "3. Xóa cache: xóa thư mục .wdm trong user home\n"
-                        error_msg += "4. Hoặc tải ChromeDriver thủ công từ: https://chromedriver.chromium.org/\n"
-                        error_msg += "5. Đặt ChromeDriver vào PATH hoặc cùng thư mục với script"
-                        raise Exception(error_msg)
+                        print("🔄 Thử dùng ChromeDriver mặc định...")
+                        try:
+                            driver = webdriver.Chrome(options=chrome_options)
+                            print("✅ ChromeDriver mặc định đã được khởi tạo thành công")
+                        except Exception as e2:
+                            error_msg = f"Lỗi khởi tạo ChromeDriver: {str(e2)}\n"
+                            error_msg += "💡 Giải pháp:\n"
+                            error_msg += "1. Đảm bảo Chrome đã được cài đặt\n"
+                            error_msg += "2. Chạy: pip install --upgrade webdriver-manager selenium\n"
+                            error_msg += "3. Xóa cache: xóa thư mục .wdm trong user home\n"
+                            error_msg += "4. Hoặc tải ChromeDriver thủ công từ: https://chromedriver.chromium.org/\n"
+                            error_msg += "5. Đặt ChromeDriver vào PATH hoặc cùng thư mục với script"
+                            raise Exception(error_msg)
         
         # Fallback cuối cùng: Thử dùng ChromeDriver mặc định (nếu chưa khởi tạo driver)
         if 'driver' not in locals() or driver is None:
