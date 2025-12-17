@@ -1,19 +1,11 @@
 FROM python:3.11-slim
 
-# Cài đặt dependencies cơ bản trước
-RUN apt-get update && apt-get install -y \
-    wget \
-    gnupg \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
-# Thêm Google Chrome repository (cách mới, không dùng apt-key)
-RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/googlechrome-linux-keyring.gpg \
-    && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/googlechrome-linux-keyring.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list
-
-# Cài đặt Chrome và dependencies
-RUN apt-get update && apt-get install -y \
-    google-chrome-stable \
+# Tối ưu: Cài đặt tất cả dependencies trong một layer để cache tốt hơn
+# Sử dụng Chromium thay vì Chrome (nhẹ hơn, cài nhanh hơn)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # Dependencies cho Chromium
+    chromium \
+    chromium-driver \
     fonts-liberation \
     libappindicator3-1 \
     libasound2 \
@@ -46,17 +38,22 @@ RUN apt-get update && apt-get install -y \
     libxrender1 \
     libxss1 \
     libxtst6 \
-    lsb-release \
     xdg-utils \
-    && rm -rf /var/lib/apt/lists/*
+    # Cleanup trong cùng layer để giảm image size
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
 WORKDIR /app
 
-# Copy và cài Python dependencies
+# Tối ưu: Copy requirements.txt trước để tận dụng Docker layer caching
+# Nếu requirements.txt không đổi, sẽ không cần cài lại pip packages
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy code
+# Cài Python dependencies với cache
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Copy code sau cùng (code thay đổi thường xuyên nhất)
 COPY . .
 
 # Expose port

@@ -1,0 +1,46 @@
+# Node modules
+node_modules
+npm-debug.log
+yarn-error.log
+
+# Build outputs
+dist
+build
+*.pyc
+__pycache__
+*.pyo
+*.pyd
+.Python
+*.egg-info
+
+# Git
+.git
+.gitignore
+
+# Documentation
+*.md
+!README.md
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Frontend source (not needed for backend)
+src
+public
+index.html
+vite.config.js
+package.json
+package-lock.json
+
+# Other
+.DS_Store
+*.log
+

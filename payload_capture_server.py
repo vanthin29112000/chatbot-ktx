@@ -7,6 +7,8 @@ from flask_cors import CORS
 import json
 import time
 import threading
+import os
+import shutil
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -46,6 +48,26 @@ def capture_payload_selenium(initial_message="hi"):
     try:
         # Cấu hình Chrome options - HEADLESS MODE (ẩn browser)
         chrome_options = Options()
+        
+        # Tự động detect và sử dụng Chromium nếu có (nhẹ hơn Chrome)
+        import os
+        import shutil
+        chromium_paths = [
+            '/usr/bin/chromium',
+            '/usr/bin/chromium-browser',
+            '/usr/bin/google-chrome',
+            '/usr/bin/google-chrome-stable'
+        ]
+        browser_binary = None
+        for path in chromium_paths:
+            if os.path.exists(path) and os.access(path, os.X_OK):
+                browser_binary = path
+                print(f"✅ Tìm thấy browser tại: {path}")
+                break
+        
+        if browser_binary:
+            chrome_options.binary_location = browser_binary
+        
         chrome_options.add_argument("--headless")  # Bật headless để ẩn browser
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
@@ -58,7 +80,7 @@ def capture_payload_selenium(initial_message="hi"):
         # Bật logging để capture network requests
         chrome_options.set_capability('goog:loggingPrefs', {'performance': 'ALL'})
         
-        print("🚀 Khởi tạo Chrome driver...")
+        print("🚀 Khởi tạo Chrome/Chromium driver...")
         capture_status["message"] = "Đang khởi tạo trình duyệt..."
         if USE_WEBDRIVER_MANAGER:
             try:
@@ -169,9 +191,36 @@ def capture_payload_selenium(initial_message="hi"):
                         error_msg += "5. Đặt ChromeDriver vào PATH hoặc cùng thư mục với script"
                         raise Exception(error_msg)
         else:
+            # Thử dùng chromedriver từ hệ thống (thường có trong Docker với chromium-driver)
+            system_chromedriver_paths = [
+                '/usr/bin/chromedriver',
+                '/usr/lib/chromium-browser/chromedriver',
+            ]
+            
+            # Thử tìm trong PATH
             try:
-                driver = webdriver.Chrome(options=chrome_options)
-                print("✅ ChromeDriver đã được khởi tạo thành công")
+                chromedriver_in_path = shutil.which('chromedriver')
+                if chromedriver_in_path:
+                    system_chromedriver_paths.append(chromedriver_in_path)
+            except:
+                pass
+            
+            chromedriver_found = None
+            for path in system_chromedriver_paths:
+                if path and os.path.exists(path) and os.access(path, os.X_OK):
+                    chromedriver_found = path
+                    print(f"✅ Tìm thấy chromedriver hệ thống tại: {path}")
+                    break
+            
+            try:
+                if chromedriver_found:
+                    from selenium.webdriver.chrome.service import Service as ChromeService
+                    service = ChromeService(chromedriver_found)
+                    driver = webdriver.Chrome(service=service, options=chrome_options)
+                    print("✅ ChromeDriver hệ thống đã được khởi tạo thành công")
+                else:
+                    driver = webdriver.Chrome(options=chrome_options)
+                    print("✅ ChromeDriver đã được khởi tạo thành công")
             except Exception as e:
                 error_msg = f"Lỗi khởi tạo ChromeDriver: {str(e)}\n"
                 error_msg += "💡 Giải pháp:\n"
