@@ -26,5 +26,8 @@ COPY . .
 # Expose port
 EXPOSE 5000
 
+# Set Python to unbuffered mode để logs hiển thị ngay
+ENV PYTHONUNBUFFERED=1
+
 # Chạy app
 CMD ["python", "payload_capture_server.py"]

@@ -30,7 +30,7 @@ def capture_payload_playwright(initial_message="hi"):
     capture_status["error"] = None
     
     try:
-        print("🚀 Khởi tạo Playwright browser...")
+        print("🚀 Khởi tạo Playwright browser...", flush=True)
         capture_status["message"] = "Đang khởi tạo trình duyệt..."
         
         # Đảm bảo Playwright browser đã được cài đặt (tự động download nếu chưa có)
@@ -41,15 +41,15 @@ def capture_payload_playwright(initial_message="hi"):
                 try:
                     browser = p.chromium.launch(headless=True)
                     browser.close()
-                    print("✅ Browser đã sẵn sàng")
+                    print("✅ Browser đã sẵn sàng", flush=True)
                 except Exception as e:
                     if "Executable doesn't exist" in str(e) or "browser has not been installed" in str(e).lower():
-                        print("📥 Browser chưa được cài đặt, đang cài đặt...")
+                        print("📥 Browser chưa được cài đặt, đang cài đặt...", flush=True)
                         import subprocess
                         subprocess.run(["playwright", "install", "chromium"], check=True, timeout=300)
-                        print("✅ Đã cài đặt browser thành công")
+                        print("✅ Đã cài đặt browser thành công", flush=True)
         except Exception as install_error:
-            print(f"⚠️  Lỗi khi kiểm tra/cài đặt browser: {install_error}")
+            print(f"⚠️  Lỗi khi kiểm tra/cài đặt browser: {install_error}", flush=True)
             # Tiếp tục thử launch, có thể browser đã có sẵn
         
         with sync_playwright() as p:
@@ -59,7 +59,7 @@ def capture_payload_playwright(initial_message="hi"):
             show_browser = os.environ.get('SHOW_BROWSER', 'false').lower() == 'true'
             
             # Khởi tạo browser
-            print(f"🌐 Đang khởi động browser... (headless={not show_browser})")
+            print(f"🌐 Đang khởi động browser... (headless={not show_browser})", flush=True)
             browser = p.chromium.launch(
                 headless=not show_browser,  # False = hiển thị browser, True = ẩn browser
                 args=[
@@ -82,7 +82,7 @@ def capture_payload_playwright(initial_message="hi"):
             if record_video:
                 context_options['record_video_dir'] = '/tmp/playwright_videos'
                 context_options['record_video_size'] = {'width': 1920, 'height': 1080}
-                print("📹 Video recording đã được bật")
+                print("📹 Video recording đã được bật", flush=True)
             
             context = browser.new_context(**context_options)
             
@@ -95,11 +95,22 @@ def capture_payload_playwright(initial_message="hi"):
             target_url = "https://trungtamquanlykytucxadhquocgiahcm.zapier.app/api/chat"
             
             # Lắng nghe network requests - dùng event listener (đơn giản hơn route)
+            request_count = [0]  # Đếm số requests để debug
+            
             def handle_request(request):
+                request_count[0] += 1
+                # Log tất cả requests đến /api/chat để debug
+                if '/api/chat' in request.url:
+                    print(f"🔍 [Request #{request_count[0]}] {request.method} {request.url}", flush=True)
+                    print(f"   Headers: {dict(request.headers)}", flush=True)
+                
                 if '/api/chat' in request.url and request.method == 'POST':
                     try:
+                        print(f"📥 Đang xử lý POST request đến {request.url}", flush=True)
                         # Lấy post_data từ request
                         post_data = request.post_data
+                        print(f"   post_data type: {type(post_data)}", flush=True)
+                        print(f"   post_data value: {post_data}", flush=True)
                         
                         if post_data:
                             # Parse JSON payload
@@ -112,32 +123,39 @@ def capture_payload_playwright(initial_message="hi"):
                                 try:
                                     post_data_str = post_data.decode('utf-8') if isinstance(post_data, bytes) else str(post_data)
                                     payload = json.loads(post_data_str)
-                                except:
+                                except Exception as decode_err:
+                                    print(f"   ⚠️  Lỗi decode: {decode_err}", flush=True)
                                     payload = post_data
                             
                             captured_payload_from_network[0] = payload
-                            print(f"✅ Đã capture payload từ network request!")
-                            print(f"📋 Request URL: {request.url}")
-                            print(f"📋 Request Method: {request.method}")
-                            print(f"📦 Payload: {json.dumps(payload, indent=2, ensure_ascii=False)}")
+                            print(f"✅ Đã capture payload từ network request!", flush=True)
+                            print(f"📋 Request URL: {request.url}", flush=True)
+                            print(f"📋 Request Method: {request.method}", flush=True)
+                            print(f"📦 Payload: {json.dumps(payload, indent=2, ensure_ascii=False)}", flush=True)
                         else:
-                            print(f"⚠️  POST request đến {request.url} nhưng không có post_data")
+                            print(f"⚠️  POST request đến {request.url} nhưng không có post_data", flush=True)
+                            print(f"   Request headers: {dict(request.headers)}", flush=True)
                     except Exception as e:
-                        print(f"⚠️  Lỗi khi parse payload: {e}")
+                        print(f"⚠️  Lỗi khi parse payload: {e}", flush=True)
                         import traceback
                         traceback.print_exc()
+                        import sys
+                        sys.stdout.flush()
             
             # Lắng nghe tất cả requests
             page.on("request", handle_request)
+            print(f"👂 Đã đăng ký request listener", flush=True)
             
             url = "https://trungtamquanlykytucxadhquocgiahcm.zapier.app/"
-            print(f"📡 Đang mở trang web: {url}")
+            print(f"📡 Đang mở trang web: {url}", flush=True)
             capture_status["message"] = "Đang truy cập trang web..."
             page.goto(url, wait_until="networkidle", timeout=30000)
+            print(f"✅ Đã load trang web thành công", flush=True)
             
-            print("⏳ Đang chờ trang web load...")
+            print("⏳ Đang chờ trang web load...", flush=True)
             capture_status["message"] = "Đang chờ trang web load..."
             time.sleep(2)  # Đợi thêm một chút để trang load hoàn toàn
+            print(f"✅ Đã chờ trang load xong. Tổng số requests đã nhận: {request_count[0]}", flush=True)
             
             capture_status["message"] = "Đang tìm input field..."
             
@@ -155,12 +173,13 @@ def capture_payload_playwright(initial_message="hi"):
                 try:
                     textarea = page.wait_for_selector(selector, timeout=5000, state="visible")
                     if textarea:
-                        print(f"✅ Tìm thấy input với selector: {selector}")
+                        print(f"✅ Tìm thấy input với selector: {selector}", flush=True)
                         break
                 except PlaywrightTimeoutError:
                     continue
             
             if not textarea:
+                print("❌ Không tìm thấy textarea với bất kỳ selector nào", flush=True)
                 raise Exception("Không tìm thấy textarea để nhập message")
             
             # Scroll element vào view
@@ -168,7 +187,7 @@ def capture_payload_playwright(initial_message="hi"):
             time.sleep(0.5)
             
             # Nhập message
-            print(f"⌨️  Đang nhập message: '{initial_message}'")
+            print(f"⌨️  Đang nhập message: '{initial_message}'", flush=True)
             capture_status["message"] = "Đang nhập message..."
             
             # Click và focus vào textarea
@@ -179,27 +198,32 @@ def capture_payload_playwright(initial_message="hi"):
             
             # Verify value đã được set
             actual_value = textarea.input_value()
-            print(f"✅ Verified textarea value: '{actual_value}'")
+            print(f"✅ Verified textarea value: '{actual_value}'", flush=True)
             
             # Submit form - Gửi Enter key
-            print("⌨️  Đang gửi Enter key để submit form...")
+            print("⌨️  Đang gửi Enter key để submit form...", flush=True)
             capture_status["message"] = "Đang gửi message..."
             
             # Clear captured payload trước khi submit
             captured_payload_from_network[0] = None
+            requests_before_submit = request_count[0]
+            print(f"   Số requests trước khi submit: {requests_before_submit}", flush=True)
             
             # Gửi Enter key
             textarea.press("Enter")
             time.sleep(0.5)
+            print(f"   Sau Enter lần 1 - Requests: {request_count[0]}, Captured: {captured_payload_from_network[0] is not None}", flush=True)
             
             # Nếu không có request, thử gửi Enter lần nữa
             if not captured_payload_from_network[0]:
+                print("   Thử gửi Enter lần 2...", flush=True)
                 textarea.press("Enter")
                 time.sleep(0.5)
+                print(f"   Sau Enter lần 2 - Requests: {request_count[0]}, Captured: {captured_payload_from_network[0] is not None}", flush=True)
             
             # Nếu vẫn không có, thử tìm và click submit button
             if not captured_payload_from_network[0]:
-                print("🔍 Thử tìm và click submit button...")
+                print("🔍 Thử tìm và click submit button...", flush=True)
                 submit_selectors = [
                     'button[type="submit"]',
                     'button[aria-label*="Send"]',
@@ -211,13 +235,16 @@ def capture_payload_playwright(initial_message="hi"):
                         submit_button = page.query_selector(selector)
                         if submit_button:
                             submit_button.click()
-                            print(f"✅ Đã click submit button với selector: {selector}")
+                            print(f"✅ Đã click submit button với selector: {selector}", flush=True)
                             time.sleep(0.5)
+                            print(f"   Sau click button - Requests: {request_count[0]}, Captured: {captured_payload_from_network[0] is not None}", flush=True)
                             break
-                    except:
+                    except Exception as btn_err:
+                        print(f"   Lỗi khi click button {selector}: {btn_err}", flush=True)
                         continue
             
-            print(f"📤 Đã gửi message, đang chờ capture payload từ network request...")
+            print(f"📤 Đã gửi message, đang chờ capture payload từ network request...", flush=True)
+            print(f"   Tổng số requests hiện tại: {request_count[0]}", flush=True)
             capture_status["message"] = "Đang chờ capture payload từ network..."
             
             # Chờ payload được capture (tối đa 20 giây)
@@ -235,18 +262,31 @@ def capture_payload_playwright(initial_message="hi"):
                     # Reset flag ngay khi capture thành công
                     with capture_lock:
                         is_capturing = False
-                    print(f"✅ Đã capture payload thành công!")
+                    print(f"✅ Đã capture payload thành công!", flush=True)
+                    print(f"   Tổng số requests: {request_count[0]}", flush=True)
                     return payload
+                
+                # Log mỗi 2 giây để biết đang chờ
+                if int(waited) % 2 == 0 and waited > 0:
+                    print(f"   ⏳ Đang chờ... ({int(waited)}s/{max_wait}s) - Requests: {request_count[0]}, Captured: {captured_payload_from_network[0] is not None}", flush=True)
                 
                 time.sleep(check_interval)
                 waited += check_interval
             
             # Nếu không capture được sau khi chờ
-            raise Exception(f"Không tìm thấy network request POST đến {target_url} sau {max_wait} giây")
+            print(f"❌ Không capture được sau {max_wait} giây", flush=True)
+            print(f"   Tổng số requests: {request_count[0]}", flush=True)
+            print(f"   Requests trước submit: {requests_before_submit}", flush=True)
+            print(f"   Requests sau submit: {request_count[0] - requests_before_submit}", flush=True)
+            raise Exception(f"Không tìm thấy network request POST đến {target_url} sau {max_wait} giây. Tổng requests: {request_count[0]}")
             
     except Exception as e:
         error_msg = f"Lỗi Playwright: {str(e)}"
-        print(f"❌ {error_msg}")
+        print(f"❌ {error_msg}", flush=True)
+        import traceback
+        traceback.print_exc()
+        import sys
+        sys.stdout.flush()
         capture_status["status"] = "error"
         capture_status["error"] = error_msg
         # Reset flag ngay khi có lỗi
