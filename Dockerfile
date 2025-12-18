@@ -3,12 +3,11 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Cài system dependencies cho Playwright Chromium
-# Chỉ cài các package cần thiết, loại bỏ packages không có sẵn hoặc không cần thiết
+# Cài system dependencies cho Playwright Chromium (headless mode)
+# Chỉ cài các package thực sự cần thiết để Chromium chạy headless
 RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-liberation \
     fonts-dejavu-core \
-    fontconfig \
     libnss3 \
     libnspr4 \
     libdbus-1-3 \
@@ -29,12 +28,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxcursor1 \
     libxi6 \
     libxtst6 \
-    libcairo-gobject2 \
-    libgtk-3-0 \
-    libgdk-pixbuf2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy và cài Python dependencies
+# Copy và cài Python dependencies trước
 COPY requirements.backend.txt requirements.txt
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
@@ -50,8 +46,6 @@ EXPOSE 5000
 
 # Set Python to unbuffered mode để logs hiển thị ngay
 ENV PYTHONUNBUFFERED=1
-# Mặc định headless=True (ẩn browser) - tối ưu cho production
-ENV SHOW_BROWSER=false
 
 # Chạy app
 CMD ["python", "payload_capture_server.py"]
