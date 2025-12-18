@@ -11,6 +11,8 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
 # Cài system dependencies cho Playwright Chromium
+# Bỏ qua playwright install-deps vì nó cố cài fonts không có sẵn (ttf-ubuntu-font-family, ttf-unifont)
+# Cài thủ công các dependencies cần thiết
 RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-liberation \
     fonts-dejavu-core \
@@ -30,11 +32,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxrandr2 \
     libgbm1 \
     libasound2 \
+    libpangocairo-1.0-0 \
+    libx11-xcb1 \
+    libxcursor1 \
+    libxi6 \
+    libxtst6 \
+    libgconf-2-4 \
+    libcairo-gobject2 \
+    libgtk-3-0 \
+    libgdk-pixbuf2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-# Cài Playwright Chromium và system dependencies
-RUN playwright install chromium && \
-    playwright install-deps chromium
+# Cài Playwright Chromium (không cài install-deps vì đã cài thủ công ở trên)
+RUN playwright install chromium
 
 # Copy code
 COPY . .

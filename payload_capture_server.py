@@ -544,13 +544,6 @@ if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     debug = os.environ.get('FLASK_ENV', 'development') == 'development'
     
-    print("=" * 60)
-    print("🚀 Payload Capture Server (Playwright) đang khởi động...")
-    print("=" * 60)
-    print("\n📝 HƯỚNG DẪN:")
-    print("1. Playwright sẽ tự động download browser khi chạy lần đầu")
-    print(f"2. Server sẽ chạy tại: http://0.0.0.0:{port}")
-    print("3. React app sẽ gọi API này để capture payload tự động")
-    print("\n" + "=" * 60 + "\n")
+    print(f"🚀 Server đang khởi động tại: http://0.0.0.0:{port}")
     
     app.run(host='0.0.0.0', port=port, debug=debug)

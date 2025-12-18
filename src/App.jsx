@@ -244,13 +244,6 @@ function App() {
       return
     }
 
-    const script = getCaptureScript()
-    
-    navigator.clipboard.writeText(script).then(() => {
-      alert(`✅ Đã copy script vào clipboard!\n\nHƯỚNG DẪN:\n1. Trên trang web vừa mở, nhấn F12\n2. Vào tab Console\n3. Paste (Ctrl+V) và Enter\n4. Gửi một message để capture payload`)
-    }).catch(() => {
-      alert('Vui lòng copy script từ ô bên dưới')
-    })
   }
   */
 
