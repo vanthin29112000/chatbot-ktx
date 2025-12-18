@@ -143,42 +143,56 @@ def capture_payload_playwright(initial_message="hi"):
             url = "https://trungtamquanlykytucxadhquocgiahcm.zapier.app/"
             print(f"📡 Đang mở trang web: {url}", flush=True)
             capture_status["message"] = "Đang truy cập trang web..."
-            # Dùng commit thay vì domcontentloaded để nhanh nhất - không cần đợi DOM load xong
-            # commit = khi navigation được commit, không cần đợi resources load
-            try:
-                page.goto(url, wait_until="commit", timeout=15000)
-                print(f"✅ Đã commit navigation", flush=True)
-            except Exception as goto_err:
-                # Nếu commit fail, thử domcontentloaded
-                print(f"⚠️  Commit failed, thử domcontentloaded: {goto_err}", flush=True)
-                page.goto(url, wait_until="domcontentloaded", timeout=15000)
-                print(f"✅ Đã load trang web với domcontentloaded", flush=True)
+            # Dùng load để đảm bảo DOM và resources cơ bản đã load (nhanh hơn networkidle)
+            # load = khi load event fire (DOM + resources đã load, nhưng không cần network idle)
+            page.goto(url, wait_until="load", timeout=15000)
+            print(f"✅ Đã load trang web (load event)", flush=True)
             
-            # Đợi element xuất hiện ngay sau khi navigation - không cần sleep
+            # Đợi element xuất hiện với timeout dài hơn vì có thể cần JS render
             capture_status["message"] = "Đang tìm input field..."
             print("⏳ Đang tìm input field...", flush=True)
             
-            # Tìm textarea để nhập message - tối ưu selectors và timeout
-            # Thử tất cả selectors song song với Promise.race hoặc tuần tự nhưng nhanh hơn
+            # Tìm textarea để nhập message - thêm nhiều selectors và timeout dài hơn
             textarea_selectors = [
                 'textarea[placeholder*="Nhập"]',
                 'textarea[placeholder*="câu hỏi"]',
+                'textarea[placeholder*="message"]',
+                'textarea[placeholder*="Message"]',
                 'textarea[data-testid*="prompt"]',
+                'textarea[data-testid*="input"]',
+                'textarea[aria-label*="message"]',
                 'textarea',
-                'input[type="text"]'
+                'input[type="text"]',
+                'input[placeholder*="Nhập"]',
+                'input[placeholder*="message"]'
             ]
             
             textarea = None
-            # Giảm timeout mỗi selector xuống 2 giây để nhanh hơn
+            # Đợi element với timeout 10 giây (đủ thời gian cho JS render)
+            # Thử từng selector với timeout ngắn hơn
             for selector in textarea_selectors:
                 try:
-                    # Dùng wait_for_selector với timeout ngắn hơn
-                    textarea = page.wait_for_selector(selector, timeout=2000, state="visible")
+                    print(f"   🔍 Đang thử selector: {selector}", flush=True)
+                    textarea = page.wait_for_selector(selector, timeout=5000, state="visible")
                     if textarea:
                         print(f"✅ Tìm thấy input với selector: {selector}", flush=True)
                         break
                 except PlaywrightTimeoutError:
+                    print(f"   ⏭️  Selector '{selector}' không tìm thấy trong 5s, thử selector tiếp theo...", flush=True)
                     continue
+                except Exception as e:
+                    print(f"   ⚠️  Lỗi khi thử selector '{selector}': {e}", flush=True)
+                    continue
+            
+            # Nếu vẫn không tìm thấy, thử query_selector_all để xem có element nào không
+            if not textarea:
+                print("⚠️  Không tìm thấy với wait_for_selector, thử query_selector_all...", flush=True)
+                all_textareas = page.query_selector_all('textarea, input[type="text"]')
+                print(f"   Tìm thấy {len(all_textareas)} textarea/input elements", flush=True)
+                if all_textareas:
+                    # Lấy element đầu tiên
+                    textarea = all_textareas[0]
+                    print(f"✅ Sử dụng element đầu tiên từ query_selector_all", flush=True)
             
             if not textarea:
                 print("❌ Không tìm thấy textarea với bất kỳ selector nào", flush=True)
