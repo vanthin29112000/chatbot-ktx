@@ -168,47 +168,87 @@ def capture_payload_playwright(initial_message="hi"):
             capture_status["message"] = "Đang tìm input field..."
             print("⏳ Đang tìm input field...", flush=True)
             
-            # Tìm textarea để nhập message - thêm nhiều selectors và timeout dài hơn
-            textarea_selectors = [
-                'textarea[placeholder*="Nhập"]',
-                'textarea[placeholder*="câu hỏi"]',
-                'textarea[placeholder*="message"]',
-                'textarea[placeholder*="Message"]',
-                'textarea[data-testid*="prompt"]',
-                'textarea[data-testid*="input"]',
-                'textarea[aria-label*="message"]',
-                'textarea',
-                'input[type="text"]',
-                'input[placeholder*="Nhập"]',
-                'input[placeholder*="message"]'
+            # Tìm textarea với placeholder "Nhập câu hỏi" - ưu tiên selector chính xác nhất
+            textarea = None
+            
+            # Strategy 1: Tìm với placeholder chính xác "Nhập câu hỏi" (ưu tiên cao nhất)
+            exact_placeholders = [
+                'textarea[placeholder="Nhập câu hỏi"]',  # Chính xác
+                'textarea[placeholder*="Nhập câu hỏi"]',  # Contains
+                'input[placeholder="Nhập câu hỏi"]',
+                'input[placeholder*="Nhập câu hỏi"]',
             ]
             
-            textarea = None
-            # Đợi element với timeout 10 giây (đủ thời gian cho JS render)
-            # Thử từng selector với timeout ngắn hơn
-            for selector in textarea_selectors:
+            for selector in exact_placeholders:
                 try:
-                    print(f"   🔍 Đang thử selector: {selector}", flush=True)
-                    textarea = page.wait_for_selector(selector, timeout=5000, state="visible")
+                    print(f"   🔍 Đang thử selector (ưu tiên): {selector}", flush=True)
+                    textarea = page.wait_for_selector(selector, timeout=8000, state="visible")
                     if textarea:
+                        # Verify placeholder để chắc chắn
+                        placeholder = textarea.get_attribute('placeholder') or ''
                         print(f"✅ Tìm thấy input với selector: {selector}", flush=True)
+                        print(f"   Placeholder: '{placeholder}'", flush=True)
                         break
                 except PlaywrightTimeoutError:
-                    print(f"   ⏭️  Selector '{selector}' không tìm thấy trong 5s, thử selector tiếp theo...", flush=True)
+                    print(f"   ⏭️  Selector '{selector}' không tìm thấy, thử tiếp...", flush=True)
                     continue
                 except Exception as e:
                     print(f"   ⚠️  Lỗi khi thử selector '{selector}': {e}", flush=True)
                     continue
             
-            # Nếu vẫn không tìm thấy, thử query_selector_all để xem có element nào không
+            # Strategy 2: Nếu không tìm thấy với placeholder chính xác, thử các selector khác
             if not textarea:
-                print("⚠️  Không tìm thấy với wait_for_selector, thử query_selector_all...", flush=True)
+                print("⚠️  Không tìm thấy với placeholder chính xác, thử các selector khác...", flush=True)
+                other_selectors = [
+                    'textarea[placeholder*="Nhập"]',
+                    'textarea[placeholder*="câu hỏi"]',
+                    'textarea[data-testid*="prompt"]',
+                    'textarea[data-testid*="input"]',
+                    'textarea[aria-label*="Nhập"]',
+                    'textarea',
+                    'input[type="text"][placeholder*="Nhập"]',
+                    'input[type="text"]'
+                ]
+                
+                for selector in other_selectors:
+                    try:
+                        print(f"   🔍 Đang thử selector: {selector}", flush=True)
+                        textarea = page.wait_for_selector(selector, timeout=5000, state="visible")
+                        if textarea:
+                            placeholder = textarea.get_attribute('placeholder') or ''
+                            print(f"✅ Tìm thấy input với selector: {selector}", flush=True)
+                            print(f"   Placeholder: '{placeholder}'", flush=True)
+                            break
+                    except PlaywrightTimeoutError:
+                        print(f"   ⏭️  Selector '{selector}' không tìm thấy, thử tiếp...", flush=True)
+                        continue
+                    except Exception as e:
+                        print(f"   ⚠️  Lỗi khi thử selector '{selector}': {e}", flush=True)
+                        continue
+            
+            # Strategy 3: Fallback - query_selector_all và filter theo placeholder
+            if not textarea:
+                print("⚠️  Không tìm thấy với wait_for_selector, thử query_selector_all và filter...", flush=True)
                 all_textareas = page.query_selector_all('textarea, input[type="text"]')
                 print(f"   Tìm thấy {len(all_textareas)} textarea/input elements", flush=True)
-                if all_textareas:
-                    # Lấy element đầu tiên
+                
+                # Ưu tiên element có placeholder chứa "Nhập câu hỏi"
+                for elem in all_textareas:
+                    try:
+                        placeholder = elem.get_attribute('placeholder') or ''
+                        print(f"   Element placeholder: '{placeholder}'", flush=True)
+                        if 'Nhập câu hỏi' in placeholder or 'Nhập' in placeholder:
+                            textarea = elem
+                            print(f"✅ Sử dụng element có placeholder phù hợp: '{placeholder}'", flush=True)
+                            break
+                    except Exception:
+                        continue
+                
+                # Nếu vẫn không có, lấy element đầu tiên
+                if not textarea and all_textareas:
                     textarea = all_textareas[0]
-                    print(f"✅ Sử dụng element đầu tiên từ query_selector_all", flush=True)
+                    placeholder = textarea.get_attribute('placeholder') or ''
+                    print(f"⚠️  Sử dụng element đầu tiên từ query_selector_all, placeholder: '{placeholder}'", flush=True)
             
             if not textarea:
                 print("❌ Không tìm thấy textarea với bất kỳ selector nào", flush=True)
