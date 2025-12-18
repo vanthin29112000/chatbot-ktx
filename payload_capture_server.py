@@ -33,41 +33,52 @@ def capture_payload_playwright(initial_message="hi"):
         print("🚀 Khởi tạo Playwright browser...", flush=True)
         capture_status["message"] = "Đang khởi tạo trình duyệt..."
         
-        # Đảm bảo Playwright browser đã được cài đặt (tự động download nếu chưa có)
-        # Lưu ý: Browser nên được cài trong Dockerfile để tránh phải tải lại mỗi lần
+        # Đảm bảo Playwright browser đã được cài đặt và dependencies đã được cài
+        # Lưu ý: Browser và dependencies nên được cài trong Dockerfile để tránh phải tải lại mỗi lần
+        import subprocess
+        
+        # Thử cài dependencies trước (có thể fail nếu không có quyền root, nhưng không sao)
         try:
-            from playwright.sync_api import sync_playwright
-            # Thử launch browser để kiểm tra xem đã cài chưa
-            with sync_playwright() as p:
-                try:
-                    browser = p.chromium.launch(headless=True)
-                    browser.close()
-                    print("✅ Browser đã sẵn sàng (đã được cài trong Docker image)", flush=True)
-                except Exception as e:
-                    error_str = str(e).lower()
-                    if "executable doesn't exist" in error_str or "browser has not been installed" in error_str or "missing dependencies" in error_str:
-                        print("📥 Browser chưa được cài đặt hoặc thiếu dependencies, đang cài đặt...", flush=True)
-                        import subprocess
-                        try:
-                            # Cài browser
-                            subprocess.run(["playwright", "install", "chromium"], check=True, timeout=300)
-                            print("✅ Đã cài đặt browser thành công", flush=True)
-                            # Thử cài system deps (có thể fail nếu đã cài trong Dockerfile)
-                            try:
-                                subprocess.run(["playwright", "install-deps", "chromium"], check=True, timeout=60)
-                                print("✅ Đã cài đặt system dependencies", flush=True)
-                            except:
-                                print("⚠️  System dependencies có thể đã được cài trong Dockerfile", flush=True)
-                        except subprocess.TimeoutExpired:
-                            raise Exception("Timeout khi cài đặt browser. Vui lòng kiểm tra kết nối mạng.")
-                        except Exception as install_err:
-                            raise Exception(f"Lỗi khi cài đặt browser: {install_err}")
-                    else:
-                        # Lỗi khác, re-raise
-                        raise
-        except Exception as install_error:
-            print(f"⚠️  Lỗi khi kiểm tra/cài đặt browser: {install_error}", flush=True)
-            # Tiếp tục thử launch, có thể browser đã có sẵn
+            print("📦 Đang kiểm tra system dependencies...", flush=True)
+            # Thử cài dependencies (cần quyền root, có thể fail trong một số môi trường)
+            result = subprocess.run(
+                ["playwright", "install-deps", "chromium"],
+                capture_output=True,
+                text=True,
+                timeout=120
+            )
+            if result.returncode == 0:
+                print("✅ System dependencies đã sẵn sàng", flush=True)
+            else:
+                print(f"⚠️  Không thể cài dependencies tự động (code: {result.returncode})", flush=True)
+                print(f"   Output: {result.stdout[:200]}", flush=True)
+                # Tiếp tục, có thể dependencies đã được cài trong Dockerfile
+        except subprocess.TimeoutExpired:
+            print("⚠️  Timeout khi cài dependencies, tiếp tục...", flush=True)
+        except FileNotFoundError:
+            print("⚠️  playwright command không tìm thấy, có thể dependencies đã được cài trong Dockerfile", flush=True)
+        except Exception as deps_err:
+            print(f"⚠️  Lỗi khi cài dependencies: {deps_err}, tiếp tục...", flush=True)
+        
+        # Thử cài browser nếu chưa có
+        try:
+            print("📥 Đang kiểm tra browser...", flush=True)
+            result = subprocess.run(
+                ["playwright", "install", "chromium"],
+                capture_output=True,
+                text=True,
+                timeout=300
+            )
+            if result.returncode == 0:
+                print("✅ Browser đã sẵn sàng", flush=True)
+            else:
+                print(f"⚠️  Browser có thể đã được cài, tiếp tục...", flush=True)
+        except subprocess.TimeoutExpired:
+            print("⚠️  Timeout khi cài browser, tiếp tục...", flush=True)
+        except FileNotFoundError:
+            print("⚠️  playwright command không tìm thấy, có thể browser đã được cài", flush=True)
+        except Exception as browser_err:
+            print(f"⚠️  Lỗi khi cài browser: {browser_err}, tiếp tục...", flush=True)
         
         with sync_playwright() as p:
             # Kiểm tra xem có muốn hiển thị browser không (qua environment variable)
@@ -75,17 +86,29 @@ def capture_payload_playwright(initial_message="hi"):
             # Set SHOW_BROWSER=true để hiển thị browser (chỉ hoạt động khi có display)
             show_browser = os.environ.get('SHOW_BROWSER', 'false').lower() == 'true'
             
-            # Khởi tạo browser
+            # Khởi tạo browser với error handling tốt hơn
             print(f"🌐 Đang khởi động browser... (headless={not show_browser})", flush=True)
-            browser = p.chromium.launch(
-                headless=not show_browser,  # False = hiển thị browser, True = ẩn browser
-                args=[
-                    '--no-sandbox',
-                    '--disable-dev-shm-usage',
-                    '--disable-blink-features=AutomationControlled',
-                ],
-                slow_mo=100 if show_browser else 0,  # Chậm lại 100ms mỗi action nếu hiển thị browser
-            )
+            try:
+                browser = p.chromium.launch(
+                    headless=not show_browser,  # False = hiển thị browser, True = ẩn browser
+                    args=[
+                        '--no-sandbox',
+                        '--disable-dev-shm-usage',
+                        '--disable-blink-features=AutomationControlled',
+                    ],
+                    slow_mo=100 if show_browser else 0,  # Chậm lại 100ms mỗi action nếu hiển thị browser
+                )
+            except Exception as launch_err:
+                error_str = str(launch_err).lower()
+                if "missing dependencies" in error_str or "host system is missing" in error_str:
+                    error_msg = (
+                        "❌ Thiếu system dependencies để chạy browser.\n"
+                        "💡 Vui lòng rebuild Docker image với Dockerfile đã được cập nhật để cài dependencies."
+                    )
+                    print(error_msg, flush=True)
+                    raise Exception("Missing system dependencies. Please rebuild Docker image.")
+                else:
+                    raise
             
             # Tạo context với viewport size
             # Có thể record video nếu muốn (để debug)

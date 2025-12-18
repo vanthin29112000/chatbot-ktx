@@ -10,17 +10,31 @@ COPY requirements.backend.txt requirements.txt
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# Cài fonts tương đương trước (để tránh lỗi khi install-deps)
+# Cài system dependencies cho Playwright Chromium
 RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-liberation \
     fonts-dejavu-core \
     fontconfig \
+    libnss3 \
+    libnspr4 \
+    libdbus-1-3 \
+    libatk1.0-0 \
+    libatk-bridge2.0-0 \
+    libcups2 \
+    libdrm2 \
+    libxkbcommon0 \
+    libatspi2.0-0 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxrandr2 \
+    libgbm1 \
+    libasound2 \
     && rm -rf /var/lib/apt/lists/*
 
-# Cài Playwright Chromium
-# Bỏ qua install-deps vì nó cố cài fonts không có (ttf-ubuntu-font-family, ttf-unifont)
-# python:3.11 đã có đủ dependencies, chỉ cần browser
-RUN playwright install chromium
+# Cài Playwright Chromium và system dependencies
+RUN playwright install chromium && \
+    playwright install-deps chromium
 
 # Copy code
 COPY . .
