@@ -33,70 +33,24 @@ def capture_payload_playwright(initial_message="hi"):
         print("🚀 Khởi tạo Playwright browser...", flush=True)
         capture_status["message"] = "Đang khởi tạo trình duyệt..."
         
-        # Đảm bảo Playwright browser đã được cài đặt và dependencies đã được cài
-        # Lưu ý: Browser và dependencies nên được cài trong Dockerfile để tránh phải tải lại mỗi lần
-        import subprocess
-        
-        # Thử cài dependencies trước (có thể fail nếu không có quyền root, nhưng không sao)
-        try:
-            print("📦 Đang kiểm tra system dependencies...", flush=True)
-            # Thử cài dependencies (cần quyền root, có thể fail trong một số môi trường)
-            result = subprocess.run(
-                ["playwright", "install-deps", "chromium"],
-                capture_output=True,
-                text=True,
-                timeout=120
-            )
-            if result.returncode == 0:
-                print("✅ System dependencies đã sẵn sàng", flush=True)
-            else:
-                print(f"⚠️  Không thể cài dependencies tự động (code: {result.returncode})", flush=True)
-                print(f"   Output: {result.stdout[:200]}", flush=True)
-                # Tiếp tục, có thể dependencies đã được cài trong Dockerfile
-        except subprocess.TimeoutExpired:
-            print("⚠️  Timeout khi cài dependencies, tiếp tục...", flush=True)
-        except FileNotFoundError:
-            print("⚠️  playwright command không tìm thấy, có thể dependencies đã được cài trong Dockerfile", flush=True)
-        except Exception as deps_err:
-            print(f"⚠️  Lỗi khi cài dependencies: {deps_err}, tiếp tục...", flush=True)
-        
-        # Thử cài browser nếu chưa có
-        try:
-            print("📥 Đang kiểm tra browser...", flush=True)
-            result = subprocess.run(
-                ["playwright", "install", "chromium"],
-                capture_output=True,
-                text=True,
-                timeout=300
-            )
-            if result.returncode == 0:
-                print("✅ Browser đã sẵn sàng", flush=True)
-            else:
-                print(f"⚠️  Browser có thể đã được cài, tiếp tục...", flush=True)
-        except subprocess.TimeoutExpired:
-            print("⚠️  Timeout khi cài browser, tiếp tục...", flush=True)
-        except FileNotFoundError:
-            print("⚠️  playwright command không tìm thấy, có thể browser đã được cài", flush=True)
-        except Exception as browser_err:
-            print(f"⚠️  Lỗi khi cài browser: {browser_err}, tiếp tục...", flush=True)
+        # Browser và dependencies đã được cài trong Dockerfile
+        # Không cần kiểm tra lại để tối ưu thời gian
         
         with sync_playwright() as p:
-            # Kiểm tra xem có muốn hiển thị browser không (qua environment variable)
-            # Mặc định là headless=True (ẩn browser)
-            # Set SHOW_BROWSER=true để hiển thị browser (chỉ hoạt động khi có display)
-            show_browser = os.environ.get('SHOW_BROWSER', 'false').lower() == 'true'
-            
-            # Khởi tạo browser với error handling tốt hơn
-            print(f"🌐 Đang khởi động browser... (headless={not show_browser})", flush=True)
+            # Luôn chạy headless=True (ẩn browser) để tối ưu performance và tránh lỗi trên Render
+            # Browser sẽ chạy ẩn, không cần display
+            print(f"🌐 Đang khởi động browser (headless mode)...", flush=True)
             try:
                 browser = p.chromium.launch(
-                    headless=not show_browser,  # False = hiển thị browser, True = ẩn browser
+                    headless=True,  # Luôn ẩn browser để tối ưu
                     args=[
                         '--no-sandbox',
                         '--disable-dev-shm-usage',
                         '--disable-blink-features=AutomationControlled',
+                        '--disable-gpu',  # Tắt GPU để tránh lỗi
+                        '--disable-software-rasterizer',  # Tối ưu
+                        '--disable-extensions',  # Tắt extensions không cần thiết
                     ],
-                    slow_mo=100 if show_browser else 0,  # Chậm lại 100ms mỗi action nếu hiển thị browser
                 )
             except Exception as launch_err:
                 error_str = str(launch_err).lower()

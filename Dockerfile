@@ -1,18 +1,10 @@
-# Dùng python:3.11 (không phải slim) - đã có nhiều dependencies sẵn
-# Đơn giản hơn nhiều so với slim + cài thủ công
-FROM python:3.11
+# Dùng python:3.11-slim để giảm kích thước image
+FROM python:3.11-slim
 
 WORKDIR /app
 
-# Copy và cài Python dependencies
-# Dùng requirements.backend.txt để Netlify không detect Python
-COPY requirements.backend.txt requirements.txt
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
-
 # Cài system dependencies cho Playwright Chromium
-# Bỏ qua playwright install-deps vì nó cố cài fonts không có sẵn (ttf-ubuntu-font-family, ttf-unifont)
-# Cài thủ công các dependencies cần thiết
+# Chỉ cài các package cần thiết, loại bỏ packages không có sẵn hoặc không cần thiết
 RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-liberation \
     fonts-dejavu-core \
@@ -37,11 +29,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxcursor1 \
     libxi6 \
     libxtst6 \
-    libgconf-2-4 \
     libcairo-gobject2 \
     libgtk-3-0 \
     libgdk-pixbuf2.0-0 \
     && rm -rf /var/lib/apt/lists/*
+
+# Copy và cài Python dependencies
+COPY requirements.backend.txt requirements.txt
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
 # Cài Playwright Chromium (không cài install-deps vì đã cài thủ công ở trên)
 RUN playwright install chromium
@@ -54,6 +50,8 @@ EXPOSE 5000
 
 # Set Python to unbuffered mode để logs hiển thị ngay
 ENV PYTHONUNBUFFERED=1
+# Mặc định headless=True (ẩn browser) - tối ưu cho production
+ENV SHOW_BROWSER=false
 
 # Chạy app
 CMD ["python", "payload_capture_server.py"]
