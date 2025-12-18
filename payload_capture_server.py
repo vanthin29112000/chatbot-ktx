@@ -143,10 +143,26 @@ def capture_payload_playwright(initial_message="hi"):
             url = "https://trungtamquanlykytucxadhquocgiahcm.zapier.app/"
             print(f"📡 Đang mở trang web: {url}", flush=True)
             capture_status["message"] = "Đang truy cập trang web..."
-            # Dùng load để đảm bảo DOM và resources cơ bản đã load (nhanh hơn networkidle)
-            # load = khi load event fire (DOM + resources đã load, nhưng không cần network idle)
-            page.goto(url, wait_until="load", timeout=15000)
-            print(f"✅ Đã load trang web (load event)", flush=True)
+            
+            # Thử load với nhiều strategies để tránh timeout
+            # Strategy 1: Thử domcontentloaded (nhanh nhất, chỉ cần DOM)
+            try:
+                print(f"   Thử với domcontentloaded...", flush=True)
+                page.goto(url, wait_until="domcontentloaded", timeout=20000)
+                print(f"✅ Đã load trang web (domcontentloaded)", flush=True)
+            except Exception as goto_err:
+                # Strategy 2: Nếu domcontentloaded fail, thử commit (nhanh nhất nhưng không đợi DOM)
+                print(f"⚠️  domcontentloaded failed, thử commit: {goto_err}", flush=True)
+                try:
+                    page.goto(url, wait_until="commit", timeout=20000)
+                    print(f"✅ Đã commit navigation (commit)", flush=True)
+                    # Đợi một chút sau commit để DOM có thời gian render
+                    time.sleep(2)
+                except Exception as commit_err:
+                    # Strategy 3: Cuối cùng thử load (đợi load event)
+                    print(f"⚠️  commit failed, thử load: {commit_err}", flush=True)
+                    page.goto(url, wait_until="load", timeout=25000)
+                    print(f"✅ Đã load trang web (load event)", flush=True)
             
             # Đợi element xuất hiện với timeout dài hơn vì có thể cần JS render
             capture_status["message"] = "Đang tìm input field..."
