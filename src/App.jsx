@@ -305,8 +305,8 @@ function App() {
         setIsLoadingPayload(true)
         setPayloadCaptureStatus('Đang mở browser và gửi tin nhắn...')
         
-        // Polling với timeout 20 giây (tăng lên một chút để đảm bảo)
-        const timeout = 20000 // 20 giây
+        // Polling với timeout 60 giây (tăng lên để đủ thời gian cho backend xử lý Playwright)
+        const timeout = 60000 // 60 giây - đủ thời gian cho Playwright load page, tìm elements và capture payload
         let captureCompleted = false // Đánh dấu đã hoàn thành (thành công hoặc thất bại)
         
         const checkStatus = async () => {
@@ -357,6 +357,10 @@ function App() {
               return true // Đánh dấu đã hoàn thành để dừng polling
             } else if (status.status === 'capturing') {
               // Backend đang xử lý → tiếp tục loading và polling
+              // Cập nhật status message từ backend để user biết đang làm gì
+              if (status.message) {
+                setPayloadCaptureStatus(status.message)
+              }
               return false // Tiếp tục polling
             }
             // Trạng thái khác (idle) → tiếp tục polling

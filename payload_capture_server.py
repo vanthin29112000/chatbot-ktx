@@ -143,12 +143,14 @@ def capture_payload_playwright(initial_message="hi"):
             url = "https://trungtamquanlykytucxadhquocgiahcm.zapier.app/"
             print(f"📡 Đang mở trang web: {url}", flush=True)
             capture_status["message"] = "Đang truy cập trang web..."
-            page.goto(url, wait_until="networkidle", timeout=30000)
+            # Giảm timeout của networkidle xuống để nhanh hơn, hoặc dùng domcontentloaded
+            page.goto(url, wait_until="domcontentloaded", timeout=20000)
             print(f"✅ Đã load trang web thành công", flush=True)
             
             print("⏳ Đang chờ trang web load...", flush=True)
             capture_status["message"] = "Đang chờ trang web load..."
-            time.sleep(2)  # Đợi thêm một chút để trang load hoàn toàn
+            # Giảm thời gian chờ xuống 1 giây thay vì 2 giây
+            time.sleep(1)
             print(f"✅ Đã chờ trang load xong. Tổng số requests đã nhận: {request_count[0]}", flush=True)
             
             capture_status["message"] = "Đang tìm input field..."
@@ -205,14 +207,19 @@ def capture_payload_playwright(initial_message="hi"):
             
             # Gửi Enter key
             textarea.press("Enter")
-            time.sleep(0.5)
+            time.sleep(0.3)  # Giảm thời gian chờ
             print(f"   Sau Enter lần 1 - Requests: {request_count[0]}, Captured: {captured_payload_from_network[0] is not None}", flush=True)
             
-            # Nếu không có request, thử gửi Enter lần nữa
+            # Nếu không có request ngay, đợi thêm một chút rồi kiểm tra lại
+            if not captured_payload_from_network[0]:
+                time.sleep(0.5)  # Đợi thêm
+                print(f"   Sau đợi thêm - Requests: {request_count[0]}, Captured: {captured_payload_from_network[0] is not None}", flush=True)
+            
+            # Nếu vẫn không có, thử gửi Enter lần nữa
             if not captured_payload_from_network[0]:
                 print("   Thử gửi Enter lần 2...", flush=True)
                 textarea.press("Enter")
-                time.sleep(0.5)
+                time.sleep(0.3)  # Giảm thời gian chờ
                 print(f"   Sau Enter lần 2 - Requests: {request_count[0]}, Captured: {captured_payload_from_network[0] is not None}", flush=True)
             
             # Nếu vẫn không có, thử tìm và click submit button
@@ -230,7 +237,7 @@ def capture_payload_playwright(initial_message="hi"):
                         if submit_button:
                             submit_button.click()
                             print(f"✅ Đã click submit button với selector: {selector}", flush=True)
-                            time.sleep(0.5)
+                            time.sleep(0.3)  # Giảm thời gian chờ
                             print(f"   Sau click button - Requests: {request_count[0]}, Captured: {captured_payload_from_network[0] is not None}", flush=True)
                             break
                     except Exception as btn_err:
@@ -241,8 +248,8 @@ def capture_payload_playwright(initial_message="hi"):
             print(f"   Tổng số requests hiện tại: {request_count[0]}", flush=True)
             capture_status["message"] = "Đang chờ capture payload từ network..."
             
-            # Chờ payload được capture (tối đa 20 giây)
-            max_wait = 20
+            # Chờ payload được capture (tối đa 30 giây - tăng lên để đảm bảo có đủ thời gian)
+            max_wait = 30
             check_interval = 0.3
             waited = 0
             
