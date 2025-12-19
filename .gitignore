@@ -27,6 +27,17 @@ build
 .env.production
 .env.development
 
+# Firebase credentials - NEVER COMMIT THESE!
+*-firebase-adminsdk-*.json
+firebase-credentials.json
+*firebase*.json
+!package.json
+!package-lock.json
+!tsconfig.json
+!vite.config.js
+!vercel.json
+!render.yaml
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
