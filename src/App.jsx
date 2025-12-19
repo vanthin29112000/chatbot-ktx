@@ -1389,7 +1389,7 @@ function App() {
                         id="roomNumber"
                         value={roomNumber}
                         onChange={(e) => setRoomNumber(e.target.value)}
-                        placeholder="Ví dụ: A101, B205"
+                        placeholder="Ví dụ: A10, 205"
                         required
                         disabled={isSubmittingInfo}
                       />
