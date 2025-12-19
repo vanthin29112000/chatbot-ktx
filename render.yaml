@@ -13,4 +13,9 @@ services:
         value: false
       - key: RECORD_VIDEO
         value: false
+      # Firebase credentials (set manual từ Render dashboard)
+      - key: FIREBASE_CREDENTIALS_JSON
+        sync: false  # Set manual từ Render dashboard
+      - key: ADMIN_KEY
+        sync: false  # Set manual từ Render dashboard (dùng để init payloads)
 

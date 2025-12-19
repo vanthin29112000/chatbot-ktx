@@ -8,7 +8,7 @@ const BACKEND_API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000'
 // Chatbot API URL - sử dụng proxy qua backend để tránh CORS
 const API_URL = `${BACKEND_API_URL}/api/chat`
 
-// Payload mặc định - sẽ dùng nếu không capture được tự động
+// Payload mặc định - sẽ dùng nếu không capture được tự động hoặc không có trong database
 const DEFAULT_PAYLOAD_TEMPLATE = {
   "id": "cmj8e583h11dx5l0nr92tluk6",
   "blockId": "cmgstldjf006hutqk4mroyx4o",
@@ -28,6 +28,22 @@ const DEFAULT_PAYLOAD_TEMPLATE = {
     "role": "user"
   },
   "mode": "public"
+}
+
+// Helper: Tạo hoặc lấy user_id từ localStorage
+const getOrCreateUserId = () => {
+  try {
+    let userId = localStorage.getItem('user_id')
+    if (!userId) {
+      // Tạo user_id mới (có thể dùng fingerprint.js hoặc UUID đơn giản)
+      userId = 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9)
+      localStorage.setItem('user_id', userId)
+    }
+    return userId
+  } catch (e) {
+    // Fallback nếu localStorage không khả dụng
+    return 'user_' + Date.now()
+  }
 }
 
 function App() {
@@ -247,10 +263,68 @@ function App() {
   }
   */
 
-  // Hiển thị popup thông tin sinh viên mỗi lần vào trang (hoàn toàn mới)
+  // Khởi tạo: Kiểm tra user đã có payload chưa
   useEffect(() => {
-    // Luôn hiển thị popup mỗi lần vào trang, không kiểm tra localStorage
-    setShowInfoModal(true)
+    const initializePayload = async () => {
+      setIsLoadingPayload(true)
+      setPayloadCaptureStatus('Đang kiểm tra payload...')
+      
+      const userId = getOrCreateUserId()
+      
+      // 1. Kiểm tra localStorage trước (nhanh hơn)
+      try {
+        const savedPayload = localStorage.getItem('payloadTemplate')
+        const savedUserName = localStorage.getItem('user_name')
+        const savedUserInfo = localStorage.getItem('user_info')
+        
+        if (savedPayload && savedUserName) {
+          // Có payload trong localStorage, sử dụng luôn
+          setPayloadTemplate(JSON.parse(savedPayload))
+          setStudentName(savedUserName)
+          setPayloadCaptureStatus('')
+          setIsLoadingPayload(false)
+          console.log('✅ Sử dụng payload từ localStorage')
+          
+          // Không hiển thị popup nếu đã có thông tin
+          setShowInfoModal(false)
+          return
+        }
+      } catch (e) {
+        console.warn('Lỗi khi đọc localStorage:', e)
+      }
+      
+      // 2. Nếu không có trong localStorage, kiểm tra backend
+      try {
+        const response = await fetch(`${BACKEND_API_URL}/api/user/payload?user_id=${userId}`)
+        const data = await response.json()
+        
+        if (data.success && data.has_payload) {
+          // Có payload trên backend, lưu vào localStorage và sử dụng
+          localStorage.setItem('payloadTemplate', JSON.stringify(data.payload))
+          localStorage.setItem('user_name', data.user_name)
+          localStorage.setItem('user_info', JSON.stringify(data.user_info || {}))
+          
+          setPayloadTemplate(data.payload)
+          setStudentName(data.user_name)
+          setPayloadCaptureStatus('')
+          setIsLoadingPayload(false)
+          console.log('✅ Sử dụng payload từ backend')
+          
+          // Không hiển thị popup nếu đã có thông tin
+          setShowInfoModal(false)
+          return
+        }
+      } catch (e) {
+        console.warn('Lỗi khi kiểm tra backend:', e)
+      }
+      
+      // 3. Nếu không có payload, hiển thị popup để nhập thông tin và request payload
+      setPayloadCaptureStatus('Vui lòng nhập thông tin để lấy payload...')
+      setIsLoadingPayload(false)
+      setShowInfoModal(true)
+    }
+    
+    initializePayload()
   }, []) // Chỉ chạy 1 lần khi mount
 
   // Tự động gửi thông tin sinh viên đã thu thập sau khi payload load xong
@@ -273,21 +347,233 @@ function App() {
     }
   }, [isLoadingPayload, payloadTemplate])
 
-  // Bắt đầu capture payload mới mỗi lần vào trang (không load từ localStorage)
-  useEffect(() => {
-    const startNewCapture = () => {
-      setIsLoadingPayload(true)
-      setPayloadCaptureStatus('Đang khởi tạo capture...')
+  // Hàm sử dụng payload mặc định
+  const useDefaultPayload = () => {
+    setPayloadTemplate(DEFAULT_PAYLOAD_TEMPLATE)
+    // Không lưu vào localStorage để mỗi lần vào trang đều mới
+    setPayloadCaptureStatus('')
+    // Không set isLoadingPayload = false ở đây, để useEffect xử lý
+    console.log('✅ Using default payload template')
+  }
+
+  // Script để inject vào console của window Zapier
+  const getCaptureScript = () => {
+    return `(function() {
+      console.log('🎯 Payload Capture Script đang chạy...');
       
-      // Luôn bắt đầu capture mới, không load từ localStorage
-      console.log('🚀 Bắt đầu capture payload mới...')
-      tryAutoCaptureWithFallback() // Không await để website load ngay
+      const originalFetch = window.fetch;
+      let captured = false;
+      
+      window.fetch = function(...args) {
+        const url = args[0];
+        const options = args[1] || {};
+        
+        if (typeof url === 'string' && 
+            url.includes('/api/chat') && 
+            options.method === 'POST' && 
+            options.body) {
+          
+          try {
+            const payload = typeof options.body === 'string' 
+              ? JSON.parse(options.body) 
+              : options.body;
+            
+            if (!captured) {
+              captured = true;
+              console.log('✅ Captured payload:', payload);
+              
+              if (window.opener && !window.opener.closed) {
+                window.opener.postMessage({
+                  type: 'CAPTURED_PAYLOAD',
+                  payload: payload
+                }, '*');
+                
+                const notification = document.createElement('div');
+                notification.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #4caf50; color: white; padding: 15px 20px; border-radius: 8px; z-index: 1000000; box-shadow: 0 4px 6px rgba(0,0,0,0.3); font-family: Arial, sans-serif; font-size: 14px;';
+                notification.textContent = '✅ Đã capture payload! Đang chuyển về app...';
+                document.body.appendChild(notification);
+                
+                setTimeout(function() {
+                  notification.remove();
+                  setTimeout(function() {
+                    if (window.opener && !window.opener.closed) {
+                      window.close();
+                    }
+                  }, 2000);
+                }, 3000);
+              } else {
+                navigator.clipboard.writeText(JSON.stringify(payload, null, 2)).then(function() {
+                  alert('✅ Đã capture payload và copy vào clipboard!\\n\\nDán vào app của bạn.');
+                }).catch(function() {
+                  console.log('Payload:', JSON.stringify(payload, null, 2));
+                  prompt('Copy payload này:', JSON.stringify(payload, null, 2));
+                });
+              }
+            }
+          } catch (e) {
+            console.error('❌ Error parsing payload:', e);
+          }
+        }
+        
+        return originalFetch.apply(this, args);
+      };
+      
+      console.log('✅ Script sẵn sàng! Gửi một message để capture payload.');
+      
+      setTimeout(function() {
+        const info = document.createElement('div');
+        info.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #2196F3; color: white; padding: 15px 20px; border-radius: 8px; z-index: 1000000; box-shadow: 0 4px 6px rgba(0,0,0,0.3); font-family: Arial, sans-serif; font-size: 14px;';
+        info.textContent = '🎯 Script đã sẵn sàng! Gửi một message để capture payload.';
+        document.body.appendChild(info);
+        setTimeout(function() {
+          info.remove();
+        }, 5000);
+      }, 500);
+    })();`
+  }
+
+  // Hàm capture payload bằng cách redirect và inject script
+  const capturePayloadWithRedirect = () => {
+    setIsLoadingPayload(true)
+    setPayloadCaptureStatus('Đang mở trang Zapier...')
+    
+    // Mở trang Zapier trong window mới
+    const zapierUrl = 'https://trungtamquanlykytucxadhquocgiahcm.zapier.app/'
+    const zapierWindow = window.open(zapierUrl, 'zapier_capture', 'width=1200,height=800')
+    
+    if (!zapierWindow) {
+      alert('⚠️ Popup bị chặn! Vui lòng cho phép popup và thử lại.')
+      setPayloadCaptureStatus('⚠️ Popup bị chặn, sử dụng payload mặc định')
+      useDefaultPayload()
+      return
     }
     
-    startNewCapture()
-  }, []) // Chỉ chạy 1 lần khi mount
+    const captureScript = getCaptureScript()
+    let scriptInjected = false
+    let windowClosed = false
+    
+    // Đợi window load xong rồi inject script
+    const injectInterval = setInterval(() => {
+      try {
+        // Kiểm tra xem window đã load chưa
+        if (zapierWindow.document && zapierWindow.document.readyState === 'complete') {
+          if (!scriptInjected) {
+            scriptInjected = true
+            clearInterval(injectInterval)
+            
+            try {
+              // Inject script vào console của window đó
+              zapierWindow.eval(captureScript)
+              setPayloadCaptureStatus('✅ Script đã được inject! Vui lòng gửi một message trên trang Zapier...')
+            } catch (e) {
+              // Cross-origin error - không thể inject trực tiếp
+              console.warn('⚠️ Không thể inject script do CORS, cần chạy thủ công:', e)
+              setPayloadCaptureStatus('⚠️ Cần inject script thủ công. Xem hướng dẫn bên dưới.')
+              
+              // Hiển thị hướng dẫn
+              setTimeout(() => {
+                const manualInstructions = `📋 HƯỚNG DẪN CAPTURE PAYLOAD THỦ CÔNG:\n\n1. Trên tab Zapier vừa mở, nhấn F12 để mở DevTools\n2. Vào tab Console\n3. Copy và paste script sau, rồi nhấn Enter:\n\n${captureScript}\n\n4. Gửi một message trên trang Zapier\n5. Payload sẽ được tự động capture!`
+                alert(manualInstructions)
+              }, 1000)
+            }
+          }
+        }
+      } catch (e) {
+        // Cross-origin error - cần inject khác cách
+        if (!scriptInjected) {
+          console.warn('⚠️ Không thể truy cập window do CORS')
+        }
+      }
+      
+      // Kiểm tra nếu window đã đóng
+      try {
+        if (zapierWindow.closed) {
+          windowClosed = true
+          clearInterval(injectInterval)
+          if (!payloadTemplate) {
+            setPayloadCaptureStatus('⚠️ Window đã đóng, sử dụng payload mặc định')
+            useDefaultPayload()
+          }
+        }
+      } catch (e) {
+        // Window đã đóng hoặc không truy cập được
+        if (!windowClosed) {
+          windowClosed = true
+          clearInterval(injectInterval)
+        }
+      }
+    }, 500)
+    
+    // Set timeout nếu không capture được sau 90 giây
+    const timeoutId = setTimeout(() => {
+      clearInterval(injectInterval)
+      if (!payloadTemplate && !windowClosed) {
+        if (zapierWindow && !zapierWindow.closed) {
+          setPayloadCaptureStatus('⏱️ Timeout: Không capture được payload. Sử dụng payload mặc định.')
+          useDefaultPayload()
+        }
+      }
+    }, 90000)
+    
+    // Listener để nhận payload từ zapier window
+    const messageListener = (event) => {
+      // Kiểm tra origin để đảm bảo an toàn (có thể bỏ qua nếu cần)
+      if (event.data && event.data.type === 'CAPTURED_PAYLOAD') {
+        console.log('✅ Received payload from Zapier window:', event.data.payload)
+        
+        clearTimeout(timeoutId)
+        clearInterval(injectInterval)
+        
+        setPayloadTemplate(event.data.payload)
+        setPayloadCaptureStatus('')
+        
+        // Cleanup
+        window.removeEventListener('message', messageListener)
+        if (zapierWindow && !zapierWindow.closed) {
+          setTimeout(() => {
+            try {
+              zapierWindow.close()
+            } catch (e) {
+              // Window đã đóng
+            }
+          }, 2000)
+        }
+        
+        // Show notification
+        const notification = document.createElement('div')
+        notification.style.cssText = 'position: fixed; top: 80px; right: 20px; background: #4caf50; color: white; padding: 15px 20px; border-radius: 8px; z-index: 1000000; box-shadow: 0 4px 6px rgba(0,0,0,0.3); font-family: Arial, sans-serif;'
+        notification.textContent = '✅ Đã capture payload thành công!'
+        document.body.appendChild(notification)
+        setTimeout(() => notification.remove(), 3000)
+      }
+    }
+    
+    window.addEventListener('message', messageListener)
+    
+    // Cleanup nếu user đóng window
+    const checkWindowClosed = setInterval(() => {
+      try {
+        if (zapierWindow.closed) {
+          clearInterval(checkWindowClosed)
+          clearInterval(injectInterval)
+          clearTimeout(timeoutId)
+          window.removeEventListener('message', messageListener)
+          
+          if (!payloadTemplate) {
+            setPayloadCaptureStatus('⚠️ Window đã đóng, sử dụng payload mặc định')
+            useDefaultPayload()
+          }
+        }
+      } catch (e) {
+        // Window không thể truy cập
+      }
+    }, 1000)
+  }
 
-  // Hàm thử capture tự động, chỉ dùng payload mặc định khi backend trả về false/error
+  // Logic khởi tạo payload đã được xử lý trong useEffect ở trên
+  // Không cần tự động capture payload nữa vì giờ dùng Firebase
+
+  // Hàm cũ (giữ lại để reference nếu cần)
   const tryAutoCaptureWithFallback = async () => {
     try {
       // Gọi API capture ngay lập tức với message 'hi'
@@ -442,15 +728,6 @@ function App() {
       // Reset is_capturing flag trên backend
       fetch(`${BACKEND_API_URL}/api/reset-capture`, { method: 'POST' }).catch(() => {})
     }
-  }
-
-  // Hàm sử dụng payload mặc định
-  const useDefaultPayload = () => {
-    setPayloadTemplate(DEFAULT_PAYLOAD_TEMPLATE)
-    // Không lưu vào localStorage để mỗi lần vào trang đều mới
-    setPayloadCaptureStatus('')
-    // Không set isLoadingPayload = false ở đây, để useEffect xử lý
-    console.log('✅ Using default payload template')
   }
   
   // useEffect để đảm bảo isLoadingPayload chỉ được set về false sau khi payloadTemplate đã có
@@ -769,6 +1046,50 @@ function App() {
     }
   }
 
+  // Hàm request payload từ backend
+  const requestPayloadFromBackend = async (userName, userInfo) => {
+    try {
+      const userId = getOrCreateUserId()
+      
+      setIsLoadingPayload(true)
+      setPayloadCaptureStatus('Đang lấy payload từ hệ thống...')
+      
+      const response = await fetch(`${BACKEND_API_URL}/api/request-payload`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          user_id: userId,
+          user_name: userName,
+          user_info: userInfo  // {room: "101"} hoặc {phone: "0123456789"}
+        })
+      })
+      
+      const data = await response.json()
+      
+      if (data.success && data.payload) {
+        // Lưu vào localStorage
+        localStorage.setItem('payloadTemplate', JSON.stringify(data.payload))
+        localStorage.setItem('user_name', data.user_name)
+        localStorage.setItem('user_info', JSON.stringify(data.user_info))
+        localStorage.setItem('payload_id', data.payload_id.toString())
+        
+        setPayloadTemplate(data.payload)
+        setPayloadCaptureStatus('')
+        setIsLoadingPayload(false)
+        
+        return data.payload
+      } else {
+        throw new Error(data.message || 'Không thể lấy payload')
+      }
+    } catch (error) {
+      console.error('❌ Error requesting payload:', error)
+      setIsLoadingPayload(false)
+      throw error
+    }
+  }
+
   // Hàm xử lý submit thông tin sinh viên
   const handleSubmitStudentInfo = async (e) => {
     e.preventDefault()
@@ -790,45 +1111,63 @@ function App() {
     
     setIsSubmittingInfo(true)
     
-    // Không lưu thông tin vào localStorage để mỗi lần vào trang đều mới
-    // Chỉ dùng thông tin trong session này
-    
-    // Tạo thông báo để gửi cho bot
-    let infoMessage = ''
-    if (isInDormitory) {
-      infoMessage = `Xin chào, tôi là ${studentName}, hiện đang ở Ký túc xá, phòng ${roomNumber}.`
-    } else {
-      infoMessage = `Xin chào, tôi là ${studentName}, hiện chưa ở Ký túc xá. Số điện thoại của tôi là ${phoneNumber}.`
-    }
-    
-    // Đóng modal trước
-    setShowInfoModal(false)
-    setIsSubmittingInfo(false)
-    
-    // Lưu thông tin vào ref để gửi sau khi payload load xong
-    pendingStudentInfoRef.current = {
-      isInDormitory,
-      name: studentName.trim(),
-      roomNumber: isInDormitory ? roomNumber.trim() : null,
-      phoneNumber: isInDormitory ? null : phoneNumber.trim(),
-      infoMessage
-    }
-    
-    // Gửi thông tin cho bot (chờ payload sẵn sàng)
-    if (payloadTemplate && !isLoadingPayload) {
-      // Nếu payload đã sẵn sàng, gửi ngay
-      try {
-        hasSentStudentInfoRef.current = true
-        await sendMessage(infoMessage)
-        pendingStudentInfoRef.current = null // Xóa thông tin đã gửi
-      } catch (error) {
-        console.error('Error sending student info to bot:', error)
-        hasSentStudentInfoRef.current = false
+    try {
+      // Tạo user_info object
+      const userInfo = isInDormitory 
+        ? { room: roomNumber.trim() }
+        : { phone: phoneNumber.trim() }
+      
+      // Request payload từ backend
+      await requestPayloadFromBackend(studentName.trim(), userInfo)
+      
+      // Tạo thông báo để gửi cho bot
+      let infoMessage = ''
+      if (isInDormitory) {
+        infoMessage = `Xin chào, tôi là ${studentName}, hiện đang ở Ký túc xá, phòng ${roomNumber}.`
+      } else {
+        infoMessage = `Xin chào, tôi là ${studentName}, hiện chưa ở Ký túc xá. Số điện thoại của tôi là ${phoneNumber}.`
       }
-    } else {
-      // Nếu payload chưa sẵn sàng, đánh dấu để gửi sau khi payload load xong
-      hasSentStudentInfoRef.current = false
-      console.log('Thông tin đã được lưu, sẽ tự động gửi khi payload load xong')
+      
+      // Đóng modal
+      setShowInfoModal(false)
+      setIsSubmittingInfo(false)
+      
+      // Lưu thông tin vào ref để gửi sau khi payload load xong
+      pendingStudentInfoRef.current = {
+        isInDormitory,
+        name: studentName.trim(),
+        roomNumber: isInDormitory ? roomNumber.trim() : null,
+        phoneNumber: isInDormitory ? null : phoneNumber.trim(),
+        infoMessage
+      }
+      
+      // Gửi thông tin cho bot (chờ payload sẵn sàng)
+      if (payloadTemplate && !isLoadingPayload) {
+        // Nếu payload đã sẵn sàng, gửi ngay
+        try {
+          hasSentStudentInfoRef.current = true
+          await sendMessage(infoMessage)
+          pendingStudentInfoRef.current = null // Xóa thông tin đã gửi
+        } catch (error) {
+          console.error('Error sending student info to bot:', error)
+          hasSentStudentInfoRef.current = false
+        }
+      } else {
+        // Nếu payload chưa sẵn sàng, đánh dấu để gửi sau khi payload load xong
+        hasSentStudentInfoRef.current = false
+        console.log('Thông tin đã được lưu, sẽ tự động gửi khi payload load xong')
+      }
+      
+    } catch (error) {
+      console.error('❌ Error requesting payload:', error)
+      alert('Lỗi khi lấy payload từ hệ thống. Sử dụng payload mặc định.')
+      setIsSubmittingInfo(false)
+      
+      // Fallback: dùng payload mặc định
+      setPayloadTemplate(DEFAULT_PAYLOAD_TEMPLATE)
+      setShowInfoModal(false)
+      setIsLoadingPayload(false)
+      setPayloadCaptureStatus('')
     }
   }
 
@@ -916,7 +1255,7 @@ function App() {
 
 
   // Hiển thị loading screen khi đang load payload (nhưng vẫn cho phép popup thông tin hiển thị)
-  const loadingScreen = isLoadingPayload ? (
+  const loadingScreen = isLoadingPayload && !payloadTemplate ? (
     <div style={{
       display: 'flex',
       flexDirection: 'column',
@@ -942,7 +1281,49 @@ function App() {
         marginBottom: '20px'
       }}></div>
       <h2 style={{ marginBottom: '10px' }}>Đang tải chatbot...</h2>
-      <p style={{ opacity: 0.8 }}>{payloadCaptureStatus || 'Đang khởi tạo...'}</p>
+      <p style={{ opacity: 0.8, marginBottom: '30px', textAlign: 'center', maxWidth: '500px' }}>
+        {payloadCaptureStatus || 'Đang khởi tạo...'}
+      </p>
+      
+      {/* Thêm nút để skip và dùng default payload (fallback) */}
+      <div style={{ marginTop: '20px', display: 'flex', gap: '10px', flexWrap: 'wrap', justifyContent: 'center' }}>
+        <button
+          onClick={() => {
+            useDefaultPayload()
+            setIsLoadingPayload(false)
+            setShowInfoModal(true) // Vẫn hiển thị popup để nhập thông tin
+          }}
+          style={{
+            padding: '12px 24px',
+            background: 'rgba(255, 255, 255, 0.2)',
+            border: '2px solid white',
+            borderRadius: '8px',
+            color: 'white',
+            cursor: 'pointer',
+            fontSize: '14px',
+            fontWeight: 'bold',
+            transition: 'all 0.3s'
+          }}
+          onMouseEnter={(e) => {
+            e.target.style.background = 'rgba(255, 255, 255, 0.3)'
+          }}
+          onMouseLeave={(e) => {
+            e.target.style.background = 'rgba(255, 255, 255, 0.2)'
+          }}
+        >
+          ⏭️ Dùng payload mặc định (không lưu vào hệ thống)
+        </button>
+      </div>
+      
+      <p style={{ 
+        marginTop: '30px', 
+        fontSize: '12px', 
+        opacity: 0.6, 
+        textAlign: 'center', 
+        maxWidth: '500px' 
+      }}>
+        💡 Vui lòng điền thông tin để lấy payload từ hệ thống, hoặc dùng payload mặc định
+      </p>
     </div>
   ) : null
 

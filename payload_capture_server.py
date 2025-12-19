@@ -1,6 +1,7 @@
 """
 Payload Capture Server - Tự động capture payload từ Zapier chatbot
 Sử dụng Playwright thay vì Selenium (nhẹ hơn, dễ cài hơn)
+Tích hợp Firebase Firestore để quản lý payloads
 """
 from flask import Flask, request, jsonify, Response, stream_with_context
 from flask_cors import CORS
@@ -9,18 +10,248 @@ import time
 import threading
 import os
 import requests
+import uuid
+from datetime import datetime
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+
+# Firebase Admin SDK
+try:
+    import firebase_admin
+    from firebase_admin import credentials, firestore
+    FIREBASE_AVAILABLE = True
+except ImportError:
+    FIREBASE_AVAILABLE = False
+    print("⚠️  Firebase Admin SDK not installed. Install with: pip install firebase-admin")
 
 app = Flask(__name__)
 CORS(app)
 
-# Global variables để lưu payload
+# Initialize Firebase Admin SDK
+def init_firebase():
+    """Khởi tạo Firebase Admin SDK"""
+    if not FIREBASE_AVAILABLE:
+        return None
+    
+    try:
+        # Kiểm tra xem đã initialize chưa
+        if not firebase_admin._apps:
+            # Cách 1: Dùng JSON string từ environment variable (khuyến nghị cho production)
+            if os.environ.get('FIREBASE_CREDENTIALS_JSON'):
+                cred_json = json.loads(os.environ.get('FIREBASE_CREDENTIALS_JSON'))
+                cred = credentials.Certificate(cred_json)
+                firebase_admin.initialize_app(cred)
+                print("✅ Firebase initialized from JSON string")
+            # Cách 2: Dùng service account key file (JSON)
+            elif os.environ.get('FIREBASE_CREDENTIALS_PATH') and os.path.exists(os.environ.get('FIREBASE_CREDENTIALS_PATH')):
+                cred = credentials.Certificate(os.environ.get('FIREBASE_CREDENTIALS_PATH'))
+                firebase_admin.initialize_app(cred)
+                print("✅ Firebase initialized from credentials file")
+            # Cách 3: Dùng default credentials (Google Cloud)
+            else:
+                try:
+                    firebase_admin.initialize_app()
+                    print("✅ Firebase initialized with default credentials")
+                except Exception as e:
+                    print(f"⚠️  Firebase initialization failed: {e}")
+                    return None
+            
+            # Test connection
+            db = firestore.client()
+            # Test read (count documents)
+            test_ref = db.collection('_test').limit(1).stream()
+            list(test_ref)  # Force query execution
+            print("✅ Firebase Firestore connection OK")
+            
+        return firestore.client()
+    except Exception as e:
+        print(f"❌ Error initializing Firebase: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+# Initialize Firebase
+db = init_firebase()
+
+# Helper functions
+def get_or_create_user_id(user_id=None):
+    """Tạo hoặc lấy user_id"""
+    if user_id:
+        return user_id
+    return f"user_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
+
+# Global variables để lưu payload (giữ lại cho backward compatibility)
 captured_payload = None
 capture_status = {
     "status": "idle",  # idle, capturing, captured, error
     "payload": None,
     "error": None
 }
+
+def capture_and_save_payload_to_firestore(initial_message="hi", save_to_firestore=True):
+    """Capture payload và lưu vào Firestore (dùng cho background task)"""
+    if not db and save_to_firestore:
+        print("❌ Firebase not initialized, cannot save to Firestore")
+        return None
+    
+    try:
+        print("🚀 [Auto-refill] Khởi tạo Playwright browser...", flush=True)
+        
+        with sync_playwright() as p:
+            print(f"🌐 [Auto-refill] Đang khởi động browser (headless mode)...", flush=True)
+            try:
+                browser = p.chromium.launch(
+                    headless=True,
+                    args=[
+                        '--no-sandbox',
+                        '--disable-dev-shm-usage',
+                        '--disable-blink-features=AutomationControlled',
+                        '--disable-gpu',
+                        '--disable-software-rasterizer',
+                        '--disable-extensions',
+                    ],
+                )
+            except Exception as launch_err:
+                error_str = str(launch_err).lower()
+                if "missing dependencies" in error_str or "host system is missing" in error_str:
+                    print("❌ [Auto-refill] Missing system dependencies", flush=True)
+                    raise Exception("Missing system dependencies")
+                else:
+                    raise
+            
+            context = browser.new_context({
+                'viewport': {'width': 1920, 'height': 1080},
+                'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            })
+            
+            page = context.new_page()
+            
+            # Biến để lưu captured payload
+            captured_payload_from_network = [None]
+            request_count = [0]
+            
+            def handle_request(request):
+                request_count[0] += 1
+                if '/api/chat' in request.url and request.method == 'POST':
+                    try:
+                        post_data = request.post_data
+                        if post_data:
+                            if isinstance(post_data, str):
+                                payload = json.loads(post_data)
+                            elif isinstance(post_data, dict):
+                                payload = post_data
+                            else:
+                                post_data_str = post_data.decode('utf-8') if isinstance(post_data, bytes) else str(post_data)
+                                payload = json.loads(post_data_str)
+                            
+                            captured_payload_from_network[0] = payload
+                            print(f"✅ [Auto-refill] Đã capture payload!", flush=True)
+                    except Exception as e:
+                        print(f"⚠️  [Auto-refill] Lỗi khi parse payload: {e}", flush=True)
+            
+            page.on("request", handle_request)
+            
+            url = "https://trungtamquanlykytucxadhquocgiahcm.zapier.app/"
+            print(f"📡 [Auto-refill] Đang mở trang web: {url}", flush=True)
+            
+            # Load page
+            try:
+                page.goto(url, wait_until="domcontentloaded", timeout=20000)
+            except Exception:
+                try:
+                    page.goto(url, wait_until="commit", timeout=20000)
+                    time.sleep(2)
+                except Exception:
+                    page.goto(url, wait_until="load", timeout=25000)
+            
+            # Tìm textarea
+            textarea = None
+            exact_placeholders = [
+                'textarea[placeholder="Nhập câu hỏi"]',
+                'textarea[placeholder*="Nhập câu hỏi"]',
+                'input[placeholder="Nhập câu hỏi"]',
+            ]
+            
+            for selector in exact_placeholders:
+                try:
+                    textarea = page.wait_for_selector(selector, timeout=8000, state="visible")
+                    if textarea:
+                        break
+                except PlaywrightTimeoutError:
+                    continue
+                except Exception:
+                    continue
+            
+            if not textarea:
+                other_selectors = ['textarea[placeholder*="Nhập"]', 'textarea', 'input[type="text"]']
+                for selector in other_selectors:
+                    try:
+                        textarea = page.wait_for_selector(selector, timeout=5000, state="visible")
+                        if textarea:
+                            break
+                    except Exception:
+                        continue
+            
+            if not textarea:
+                raise Exception("Không tìm thấy textarea")
+            
+            textarea.scroll_into_view_if_needed()
+            textarea.click()
+            textarea.fill(initial_message)
+            
+            # Submit
+            captured_payload_from_network[0] = None
+            textarea.press("Enter")
+            time.sleep(0.5)
+            
+            if not captured_payload_from_network[0]:
+                textarea.press("Enter")
+                time.sleep(0.5)
+            
+            # Chờ payload
+            max_wait = 10
+            waited = 0
+            payload_result = None
+            
+            while waited < max_wait:
+                if captured_payload_from_network[0]:
+                    payload_result = captured_payload_from_network[0]
+                    break
+                
+                time.sleep(0.2)
+                waited += 0.2
+            
+            # Đóng browser
+            try:
+                browser.close()
+            except:
+                pass
+            
+            if payload_result:
+                # Lưu vào Firestore nếu cần
+                if save_to_firestore and db:
+                    doc_ref = db.collection('payloads').document()
+                    doc_ref.set({
+                        'payload_data': json.dumps(payload_result, ensure_ascii=False),
+                        'is_used': False,
+                        'user_id': None,
+                        'user_name': None,
+                        'user_info': None,
+                        'assigned_at': None,
+                        'created_at': firestore.SERVER_TIMESTAMP,
+                        'updated_at': firestore.SERVER_TIMESTAMP
+                    })
+                    print(f"✅ [Auto-refill] Đã lưu payload vào Firestore (ID: {doc_ref.id})", flush=True)
+                
+                return payload_result
+            else:
+                raise Exception("Timeout: Không capture được payload")
+            
+    except Exception as e:
+        error_msg = f"Lỗi capture payload: {str(e)}"
+        print(f"❌ [Auto-refill] {error_msg}", flush=True)
+        import traceback
+        traceback.print_exc()
+        return None
 
 def capture_payload_playwright(initial_message="hi"):
     """Sử dụng Playwright để tự động capture payload"""
@@ -544,10 +775,358 @@ def proxy_chat():
             "message": error_msg
         }), 500
 
+# ========== Firebase Firestore API Endpoints ==========
+
+@app.route('/api/request-payload', methods=['POST'])
+def request_payload():
+    """User request một payload chưa sử dụng"""
+    if not db:
+        return jsonify({
+            "success": False,
+            "message": "Firebase not initialized. Please configure FIREBASE_CREDENTIALS_JSON."
+        }), 500
+    
+    try:
+        data = request.json or {}
+        user_id = data.get('user_id')
+        user_name = data.get('user_name', '')
+        user_info = data.get('user_info', {})  # {room: "101"} hoặc {phone: "0123456789"}
+        
+        if not user_id:
+            return jsonify({
+                "success": False,
+                "message": "user_id is required"
+            }), 400
+        
+        # Tìm payload chưa sử dụng
+        unused_payloads = db.collection('payloads').where('is_used', '==', False).limit(1).stream()
+        
+        payload_ref = None
+        for payload_doc in unused_payloads:
+            payload_ref = payload_doc
+            break
+        
+        if not payload_ref:
+            return jsonify({
+                "success": False,
+                "message": "Không còn payload nào khả dụng. Vui lòng liên hệ admin."
+            }), 404
+        
+        # Update payload với transaction để đảm bảo atomic
+        transaction = db.transaction()
+        payload_doc_ref = db.collection('payloads').document(payload_ref.id)
+        
+        @firestore.transactional
+        def update_payload(transaction, doc_ref):
+            snapshot = doc_ref.get(transaction=transaction)
+            if not snapshot.exists:
+                raise ValueError("Payload không tồn tại")
+            
+            data = snapshot.to_dict()
+            if data.get('is_used', False):
+                raise ValueError("Payload đã được sử dụng")
+            
+            # Update payload
+            transaction.update(doc_ref, {
+                'is_used': True,
+                'user_id': user_id,
+                'user_name': user_name,
+                'user_info': user_info,
+                'assigned_at': firestore.SERVER_TIMESTAMP,
+                'updated_at': firestore.SERVER_TIMESTAMP
+            })
+            
+            return data
+        
+        try:
+            payload_data = update_payload(transaction, payload_doc_ref)
+            payload_dict = json.loads(payload_data['payload_data']) if isinstance(payload_data.get('payload_data'), str) else payload_data.get('payload_data', {})
+            
+            return jsonify({
+                "success": True,
+                "payload": payload_dict,
+                "payload_id": payload_ref.id,
+                "user_id": user_id,
+                "user_name": user_name,
+                "user_info": user_info
+            })
+        except ValueError as e:
+            # Payload đã được sử dụng, thử tìm payload khác
+            return jsonify({
+                "success": False,
+                "message": "Payload đã được sử dụng, vui lòng thử lại."
+            }), 409
+        
+    except Exception as e:
+        print(f"❌ Error in request_payload: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            "success": False,
+            "message": f"Lỗi khi request payload: {str(e)}"
+        }), 500
+
+@app.route('/api/user/payload', methods=['GET'])
+def get_user_payload():
+    """Kiểm tra xem user đã có payload chưa"""
+    if not db:
+        return jsonify({
+            "success": False,
+            "message": "Firebase not initialized"
+        }), 500
+    
+    try:
+        user_id = request.args.get('user_id')
+        
+        if not user_id:
+            return jsonify({
+                "success": False,
+                "message": "user_id is required"
+            }), 400
+        
+        # Tìm payload của user
+        user_payloads = db.collection('payloads').where('user_id', '==', user_id).where('is_used', '==', True).limit(1).stream()
+        
+        for payload_doc in user_payloads:
+            payload_data = payload_doc.to_dict()
+            payload_dict = json.loads(payload_data['payload_data']) if isinstance(payload_data.get('payload_data'), str) else payload_data.get('payload_data', {})
+            
+            assigned_at = payload_data.get('assigned_at')
+            if assigned_at and hasattr(assigned_at, 'isoformat'):
+                assigned_at_str = assigned_at.isoformat()
+            elif assigned_at:
+                assigned_at_str = str(assigned_at)
+            else:
+                assigned_at_str = None
+            
+            return jsonify({
+                "success": True,
+                "has_payload": True,
+                "payload": payload_dict,
+                "user_name": payload_data.get('user_name'),
+                "user_info": payload_data.get('user_info'),
+                "assigned_at": assigned_at_str
+            })
+        
+        return jsonify({
+            "success": True,
+            "has_payload": False
+        })
+            
+    except Exception as e:
+        print(f"❌ Error in get_user_payload: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            "success": False,
+            "message": f"Lỗi: {str(e)}"
+        }), 500
+
+@app.route('/api/admin/init-payloads', methods=['POST'])
+def init_payloads_endpoint():
+    """Init payloads qua API - Chạy 1 lần sau khi deploy"""
+    if not db:
+        return jsonify({
+            "success": False,
+            "message": "Firebase not initialized"
+        }), 500
+    
+    try:
+        admin_key = request.headers.get('X-Admin-Key') or (request.json or {}).get('admin_key')
+        expected_key = os.environ.get('ADMIN_KEY', 'change-me-in-production')
+        
+        if admin_key != expected_key:
+            return jsonify({
+                "success": False,
+                "message": "Unauthorized"
+            }), 401
+        
+        count = (request.json or {}).get('count', 100)
+        
+        # Check xem đã có payloads chưa
+        existing_count = len(list(db.collection('payloads').limit(1).stream()))
+        if existing_count > 0:
+            total_count = len(list(db.collection('payloads').stream()))
+            return jsonify({
+                "success": False,
+                "message": f"Đã có {total_count} payloads. Xóa dữ liệu cũ trước khi tạo mới.",
+                "existing_count": total_count
+            }), 400
+        
+        base_payload = {
+            "blockId": "cmgstldjf006hutqk4mroyx4o",
+            "params": {
+                "params": {
+                    "projectSlug": "trungtamquanlykytucxadhquocgiahcm",
+                    "pageId": "cmgstldib006futqk8rv7ro4u",
+                    "chatbotId": "cmgstldjf006hutqk4mroyx4o"
+                }
+            },
+            "stream": True,
+            "useLegacyStreamFormat": True,
+            "message": {
+                "content": "",
+                "role": "user"
+            },
+            "mode": "public"
+        }
+        
+        created = []
+        batch = db.batch()
+        batch_count = 0
+        
+        for i in range(count):
+            payload = base_payload.copy()
+            unique_id = uuid.uuid4().hex[:15]
+            payload["id"] = f"cm{unique_id}{i:03d}"
+            payload["chatbotSessionId"] = f"cm{unique_id}{i:03d}"
+            payload["predictionId"] = str(uuid.uuid4())
+            
+            # Create document reference
+            doc_ref = db.collection('payloads').document()
+            
+            # Add to batch (Firestore batch limit: 500 operations)
+            batch.set(doc_ref, {
+                'payload_data': json.dumps(payload, ensure_ascii=False),
+                'is_used': False,
+                'user_id': None,
+                'user_name': None,
+                'user_info': None,
+                'assigned_at': None,
+                'created_at': firestore.SERVER_TIMESTAMP,
+                'updated_at': firestore.SERVER_TIMESTAMP
+            })
+            
+            created.append(doc_ref.id)
+            batch_count += 1
+            
+            # Firestore batch limit is 500, commit và tạo batch mới
+            if batch_count >= 500:
+                batch.commit()
+                print(f"Created {i + 1}/{count} payloads...")
+                batch = db.batch()
+                batch_count = 0
+        
+        # Commit batch cuối cùng
+        if batch_count > 0:
+            batch.commit()
+        
+        print(f"✅ Created {count} payloads successfully!")
+        
+        return jsonify({
+            "success": True,
+            "message": f"Đã tạo {count} payloads thành công",
+            "count": count,
+            "created_ids": created[:10]  # Chỉ trả về 10 ID đầu
+        })
+        
+    except Exception as e:
+        print(f"❌ Error in init_payloads: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            "success": False,
+            "message": f"Lỗi: {str(e)}"
+        }), 500
+
+@app.route('/api/admin/payloads', methods=['GET'])
+def list_payloads():
+    """Admin endpoint: Xem danh sách payloads"""
+    if not db:
+        return jsonify({
+            "success": False,
+            "message": "Firebase not initialized"
+        }), 500
+    
+    try:
+        admin_key = request.headers.get('X-Admin-Key')
+        expected_key = os.environ.get('ADMIN_KEY', 'change-me-in-production')
+        
+        if admin_key != expected_key:
+            return jsonify({
+                "success": False,
+                "message": "Unauthorized"
+            }), 401
+        
+        is_used = request.args.get('is_used')  # 'true' hoặc 'false'
+        limit = int(request.args.get('limit', 100))
+        
+        query = db.collection('payloads')
+        if is_used is not None:
+            query = query.where('is_used', '==', is_used.lower() == 'true')
+        
+        payloads = []
+        for doc in query.order_by('created_at', direction=firestore.Query.DESCENDING).limit(limit).stream():
+            data = doc.to_dict()
+            payload_dict = json.loads(data['payload_data']) if isinstance(data.get('payload_data'), str) else data.get('payload_data')
+            
+            assigned_at = data.get('assigned_at')
+            created_at = data.get('created_at')
+            
+            assigned_at_str = assigned_at.isoformat() if assigned_at and hasattr(assigned_at, 'isoformat') else (str(assigned_at) if assigned_at else None)
+            created_at_str = created_at.isoformat() if created_at and hasattr(created_at, 'isoformat') else (str(created_at) if created_at else None)
+            
+            payloads.append({
+                'id': doc.id,
+                'payload': payload_dict,
+                'is_used': data.get('is_used', False),
+                'user_id': data.get('user_id'),
+                'user_name': data.get('user_name'),
+                'user_info': data.get('user_info'),
+                'assigned_at': assigned_at_str,
+                'created_at': created_at_str
+            })
+        
+        return jsonify({
+            "success": True,
+            "count": len(payloads),
+            "payloads": payloads
+        })
+        
+    except Exception as e:
+        print(f"❌ Error in list_payloads: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            "success": False,
+            "message": f"Lỗi: {str(e)}"
+        }), 500
+
 @app.route('/health', methods=['GET'])
 def health():
-    """Health check endpoint"""
-    return jsonify({"status": "ok"})
+    """Health check endpoint - kiểm tra cả Firebase"""
+    try:
+        if db:
+            # Test Firebase connection
+            test_ref = db.collection('_test').limit(1).stream()
+            list(test_ref)
+            firebase_status = "ok"
+            
+            # Đếm payloads
+            unused_count = len(list(db.collection('payloads').where('is_used', '==', False).stream()))
+            total_count = len(list(db.collection('payloads').stream()))
+            used_count = total_count - unused_count
+        else:
+            firebase_status = "not_initialized"
+            unused_count = 0
+            total_count = 0
+            used_count = 0
+    except Exception as e:
+        firebase_status = f"error: {str(e)}"
+        unused_count = 0
+        total_count = 0
+        used_count = 0
+    
+    return jsonify({
+        "status": "ok",
+        "firebase": firebase_status,
+        "payloads": {
+            "total": total_count,
+            "unused": unused_count,
+            "used": used_count
+        },
+        "background_task": "running" if background_thread and background_thread.is_alive() else "not_running"
+    })
 
 @app.route('/keep-alive', methods=['GET'])
 def keep_alive():
@@ -572,11 +1151,116 @@ def reset_capture():
         "message": "Capture flag đã được reset"
     })
 
+# ========== Background Task: Tự động kiểm tra và refill payloads ==========
+
+def check_and_refill_payloads():
+    """Kiểm tra số lượng payload và tự động capture nếu cần"""
+    if not db:
+        print("⚠️  [Auto-refill] Firebase not initialized, skipping check")
+        return
+    
+    try:
+        # Đếm số payload chưa sử dụng
+        unused_payloads = list(db.collection('payloads').where('is_used', '==', False).stream())
+        unused_count = len(unused_payloads)
+        
+        # Target: giữ 100 payloads
+        TARGET_COUNT = 100
+        MIN_THRESHOLD = 50  # Bắt đầu refill nếu dưới 50
+        
+        print(f"📊 [Auto-refill] Kiểm tra payloads: {unused_count}/{TARGET_COUNT} payloads chưa sử dụng", flush=True)
+        
+        if unused_count < MIN_THRESHOLD:
+            needed = TARGET_COUNT - unused_count
+            print(f"🔄 [Auto-refill] Bắt đầu capture {needed} payloads mới...", flush=True)
+            
+            success_count = 0
+            failed_count = 0
+            max_attempts = needed + 20  # Capture thêm 20 cái để có buffer
+            
+            for i in range(max_attempts):
+                try:
+                    print(f"🔄 [Auto-refill] Đang capture payload #{i+1}/{max_attempts}...", flush=True)
+                    payload = capture_and_save_payload_to_firestore(initial_message="hi", save_to_firestore=True)
+                    
+                    if payload:
+                        success_count += 1
+                        print(f"✅ [Auto-refill] Thành công: {success_count}/{needed}", flush=True)
+                        
+                        # Kiểm tra lại số lượng
+                        current_unused = len(list(db.collection('payloads').where('is_used', '==', False).stream()))
+                        if current_unused >= TARGET_COUNT:
+                            print(f"✅ [Auto-refill] Đã đủ {current_unused} payloads, dừng capture", flush=True)
+                            break
+                        
+                        # Delay giữa các lần capture để tránh quá tải
+                        time.sleep(3)
+                    else:
+                        failed_count += 1
+                        print(f"❌ [Auto-refill] Thất bại: {failed_count} lần", flush=True)
+                        
+                        # Nếu fail nhiều lần liên tiếp, dừng lại
+                        if failed_count >= 5:
+                            print(f"⚠️  [Auto-refill] Thất bại quá nhiều lần, dừng capture", flush=True)
+                            break
+                        
+                        time.sleep(5)  # Đợi lâu hơn nếu fail
+                        
+                except Exception as e:
+                    failed_count += 1
+                    print(f"❌ [Auto-refill] Lỗi khi capture: {e}", flush=True)
+                    
+                    if failed_count >= 5:
+                        print(f"⚠️  [Auto-refill] Thất bại quá nhiều lần, dừng capture", flush=True)
+                        break
+                    
+                    time.sleep(5)
+            
+            final_count = len(list(db.collection('payloads').where('is_used', '==', False).stream()))
+            print(f"✅ [Auto-refill] Hoàn thành! Tổng payloads: {final_count}, Thành công: {success_count}, Thất bại: {failed_count}", flush=True)
+        else:
+            print(f"✅ [Auto-refill] Đủ payloads ({unused_count}/{TARGET_COUNT}), không cần capture thêm", flush=True)
+            
+    except Exception as e:
+        print(f"❌ [Auto-refill] Lỗi khi kiểm tra và refill payloads: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
+
+def background_refill_task():
+    """Background task chạy mỗi 1 giờ để kiểm tra và refill payloads"""
+    CHECK_INTERVAL = 3600  # 1 giờ = 3600 giây
+    
+    # Chờ một chút sau khi server khởi động
+    time.sleep(60)  # Đợi 1 phút sau khi server start
+    
+    print(f"🔄 [Auto-refill] Background task đã khởi động, sẽ kiểm tra mỗi {CHECK_INTERVAL/60} phút", flush=True)
+    
+    while True:
+        try:
+            check_and_refill_payloads()
+        except Exception as e:
+            print(f"❌ [Auto-refill] Lỗi trong background task: {e}", flush=True)
+        
+        # Đợi CHECK_INTERVAL giây trước khi kiểm tra lần tiếp theo
+        print(f"⏰ [Auto-refill] Đợi {CHECK_INTERVAL/60} phút trước khi kiểm tra lần tiếp theo...", flush=True)
+        time.sleep(CHECK_INTERVAL)
+
+# Global variable để track background thread
+background_thread = None
+
 if __name__ == '__main__':
     import os
     port = int(os.environ.get('PORT', 5000))
     debug = os.environ.get('FLASK_ENV', 'development') == 'development'
     
     print(f"🚀 Server đang khởi động tại: http://0.0.0.0:{port}")
+    
+    # Khởi động background task trong thread riêng
+    if db:
+        background_thread = threading.Thread(target=background_refill_task, daemon=True)
+        background_thread.start()
+        print("✅ Background auto-refill task đã được khởi động")
+    else:
+        print("⚠️  Firebase not initialized, background auto-refill task sẽ không chạy")
     
     app.run(host='0.0.0.0', port=port, debug=debug)
