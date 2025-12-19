@@ -1227,6 +1227,41 @@ def check_and_refill_payloads():
         import traceback
         traceback.print_exc()
 
+def keep_alive_ping_task():
+    """Background task để tự động ping keep-alive endpoint mỗi 10 phút để tránh spin down"""
+    PING_INTERVAL = 600  # 10 phút = 600 giây
+    
+    # Chờ server khởi động xong
+    time.sleep(30)
+    
+    print(f"💓 [Keep-alive] Keep-alive ping task đã khởi động, sẽ ping mỗi {PING_INTERVAL/60} phút", flush=True)
+    
+    while True:
+        try:
+            # Ping keep-alive endpoint để giữ service không bị spin down
+            import urllib.request
+            import urllib.error
+            
+            try:
+                # Lấy PORT từ environment hoặc dùng default
+                port = int(os.environ.get('PORT', 5000))
+                # Ping localhost (service đang chạy trên cùng instance)
+                url = f"http://localhost:{port}/keep-alive"
+                
+                with urllib.request.urlopen(url, timeout=5) as response:
+                    if response.status == 200:
+                        print(f"💓 [Keep-alive] Ping thành công - Service đang hoạt động", flush=True)
+            except Exception as ping_err:
+                # Không log lỗi vì có thể service chưa sẵn sàng
+                pass
+                
+        except Exception as e:
+            # Không log lỗi để tránh spam logs
+            pass
+        
+        # Đợi PING_INTERVAL giây trước khi ping lần tiếp theo
+        time.sleep(PING_INTERVAL)
+
 def background_refill_task():
     """Background task chạy mỗi 1 giờ để kiểm tra và refill payloads"""
     CHECK_INTERVAL = 3600  # 1 giờ = 3600 giây
@@ -1255,6 +1290,11 @@ if __name__ == '__main__':
     debug = os.environ.get('FLASK_ENV', 'development') == 'development'
     
     print(f"🚀 Server đang khởi động tại: http://0.0.0.0:{port}")
+    
+    # Khởi động keep-alive ping task (luôn chạy để tránh spin down)
+    keep_alive_thread = threading.Thread(target=keep_alive_ping_task, daemon=True)
+    keep_alive_thread.start()
+    print("✅ Keep-alive ping task đã được khởi động (ping mỗi 10 phút)")
     
     # Khởi động background task trong thread riêng
     if db:
