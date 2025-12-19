@@ -118,10 +118,11 @@ def capture_and_save_payload_to_firestore(initial_message="hi", save_to_firestor
                 else:
                     raise
             
-            context = browser.new_context({
+            context_options = {
                 'viewport': {'width': 1920, 'height': 1080},
                 'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            })
+            }
+            context = browser.new_context(**context_options)
             
             page = context.new_page()
             
